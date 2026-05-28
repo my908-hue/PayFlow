@@ -52,7 +52,7 @@ function HelpIcon() {
 }
 
 export default function App() {
-  const { publicKey, connect, signAndSubmit, disconnect, error } = useWallet();
+  const { publicKey, connect, signAndSubmit, disconnect, error, connecting } = useWallet();
   const { theme, toggle } = useTheme();
   const { available: freighterAvailable, installUrl } = useFreighterAvailable();
   const { networkMatch, walletNetwork } = useNetworkCheck();
@@ -236,7 +236,7 @@ export default function App() {
 
       {/* Freighter installed but not connected */}
       {freighterAvailable && !publicKey && (
-        <ConnectWallet onConnect={connect} error={error} />
+        <ConnectWallet onConnect={connect} error={error} loading={connecting} />
       )}
 
       {/* Connected */}

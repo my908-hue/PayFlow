@@ -39,16 +39,16 @@ export default function Dashboard({ userKey, onSign, refreshTrigger, announce }:
   async function performCancel() {
     setShowConfirm(false);
     announce("Transaction submitted");
-    const hash = await cancelTx.submit(async () => {
-      const xdr = await buildCancelTx(userKey);
-      return onSign(xdr);
-    });
-    if (hash) {
+    try {
+      const hash = await cancelTx.submit(async () => {
+        const xdr = await buildCancelTx(userKey);
+        return onSign(xdr);
+      });
       addToast(`Cancelled. tx: ${hash.slice(0, 12)}…`, "success");
       announce("Transaction confirmed");
       refresh();
-    } else if (cancelTx.error) {
-      const msg = `Error: ${friendlyError(cancelTx.error)}`;
+    } catch (e: unknown) {
+      const msg = `Error: ${friendlyError(e instanceof Error ? e.message : String(e))}`;
       addToast(msg, "error");
       announce(msg);
     }
@@ -56,15 +56,15 @@ export default function Dashboard({ userKey, onSign, refreshTrigger, announce }:
 
   async function handlePayPerUse(stroops: bigint) {
     announce("Transaction submitted");
-    const hash = await ppuTx.submit(async () => {
-      const xdr = await buildPayPerUseTx(userKey, stroops);
-      return onSign(xdr);
-    });
-    if (hash) {
+    try {
+      const hash = await ppuTx.submit(async () => {
+        const xdr = await buildPayPerUseTx(userKey, stroops);
+        return onSign(xdr);
+      });
       addToast(`Paid! tx: ${hash.slice(0, 12)}…`, "success");
       announce("Transaction confirmed");
-    } else if (ppuTx.error) {
-      const msg = `Error: ${friendlyError(ppuTx.error)}`;
+    } catch (e: unknown) {
+      const msg = `Error: ${friendlyError(e instanceof Error ? e.message : String(e))}`;
       addToast(msg, "error");
       announce(msg);
     }
