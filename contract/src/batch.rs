@@ -59,7 +59,7 @@ pub fn batch_charge(env: &Env, users: Vec<Address>) -> Vec<ChargeResult> {
                         &sub.amount,
                     );
 
-                    merchant_stats::increment_revenue(env, &sub.merchant, sub.amount);
+                    merchant_stats::increment_revenue_with_daily(env, &sub.merchant, sub.amount);
 
                     sub.last_charged = now;
                     env.storage().persistent().set(&key, &sub);

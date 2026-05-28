@@ -47,6 +47,8 @@ pub enum DataKey {
     ActiveCount,
     // Feature: merchant revenue stats
     MerchantRevenue(Address),
+    // Per-day merchant revenue buckets (keyed by Unix day)
+    MerchantRevenueDay(Address, u64),
     // Feature: daily spending limits (temporary storage)
     DailyLimit(Address),
     DailySpent(Address),
@@ -183,7 +185,7 @@ impl FlowPay {
             &sub.amount,
         );
 
-        merchant_stats::increment_revenue(&env, &sub.merchant, sub.amount);
+        merchant_stats::increment_revenue_with_daily(&env, &sub.merchant, sub.amount);
 
         sub.last_charged = now;
 
@@ -225,7 +227,7 @@ impl FlowPay {
             &amount,
         );
 
-        merchant_stats::increment_revenue(&env, &sub.merchant, amount);
+        merchant_stats::increment_revenue_with_daily(&env, &sub.merchant, amount);
         spending_limit::record_spend(&env, &user, amount);
 
         events::publish_pay_per_use(&env, &user, &sub.merchant, amount);
@@ -379,6 +381,12 @@ impl FlowPay {
     /// (sum of all successful `charge()` and `pay_per_use()` calls).
     pub fn get_merchant_revenue(env: Env, merchant: Address) -> i128 {
         merchant_stats::get_merchant_revenue(&env, &merchant)
+    }
+
+    /// Returns per-day revenue for the given merchant for the last `days` days.
+    /// Oldest -> newest.
+    pub fn get_merchant_revenue_history(env: Env, merchant: Address, days: u32) -> Vec<i128> {
+        merchant_stats::get_merchant_revenue_history(&env, &merchant, days)
     }
 
     // ─────────────────────────────────────────────────────────────
