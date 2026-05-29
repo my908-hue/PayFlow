@@ -33,6 +33,8 @@ pub struct Subscription {
     pub active: bool,
     pub paused: bool,       // true if paused, false otherwise
     pub token: Address,     // SAC token used for this subscription
+    pub referrer: Option<Address>, // optional referral address
+    pub label: Symbol,      // user-assigned label for this subscription
 }
 
 // ── Contract ──────────────────────────────────────────────────────────────────
@@ -56,6 +58,8 @@ impl FlowPay {
     ///
     /// `token` is the SAC address of the token to use for this subscription
     /// (e.g. native XLM or USDC). Each subscription can use a different token.
+    /// `referrer` is an optional referral address for tracking referrals.
+    /// `label` is a user-assigned name for this subscription.
     ///
     /// The user must have already called `approve()` on the token contract
     /// granting this contract an allowance >= amount.
@@ -66,6 +70,8 @@ impl FlowPay {
         amount: i128,
         interval: u64,
         token: Address,
+        referrer: Option<Address>,
+        label: Symbol,
     ) {
         user.require_auth();
 
@@ -87,6 +93,8 @@ impl FlowPay {
             active: true,
             paused: false,
             token,
+            referrer,
+            label,
         };
 
         storage::set_subscription(&env, &user, &sub);

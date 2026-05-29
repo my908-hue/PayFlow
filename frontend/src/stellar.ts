@@ -67,19 +67,39 @@ async function buildTx(
  * @param merchant    merchant public key
  * @param amount      amount in stroops (1 XLM = 10_000_000 stroops)
  * @param intervalSec seconds between charges (e.g. 2_592_000 = 30 days)
+ * @param tokenAddr   token address to use for this subscription
+ * @param referrer    optional referral address
+ * @param label       user-assigned label for this subscription
  */
 export async function buildSubscribeTx(
   user: string,
   merchant: string,
   amount: bigint,
-  intervalSec: bigint
+  intervalSec: bigint,
+  tokenAddr: string,
+  referrer: string | null,
+  label: string
 ): Promise<string> {
+  const referrerVal = referrer ? { tag: "Some", val: addressVal(referrer) } : { tag: "None" };
   return buildTx(user, "subscribe", [
     addressVal(user),
     addressVal(merchant),
     nativeToScVal(amount, { type: "i128" }),
     nativeToScVal(intervalSec, { type: "u64" }),
+    addressVal(tokenAddr),
+    nativeToScVal(referrerVal, { type: "option" }),
+    nativeToScVal(label, { type: "symbol" }),
   ]);
+}
+
+/** Returns the XDR of a `pause` transaction ready for wallet signing. */
+export async function buildPauseTx(user: string): Promise<string> {
+  return buildTx(user, "pause", [addressVal(user)]);
+}
+
+/** Returns the XDR of a `resume` transaction ready for wallet signing. */
+export async function buildResumeTx(user: string): Promise<string> {
+  return buildTx(user, "resume", [addressVal(user)]);
 }
 
 /** Returns the XDR of a `cancel` transaction ready for wallet signing. */
@@ -133,7 +153,21 @@ export async function getSubscription(user: string) {
         fields[key] = Number(val.u64());
         break;
       case "active":
+      case "paused":
         fields[key] = val.b();
+        break;
+      case "token":
+        fields[key] = Address.fromScVal(val).toString();
+        break;
+      case "referrer":
+        if (val.switch().name === "scvVoid") {
+          fields[key] = null;
+        } else {
+          fields[key] = Address.fromScVal(val).toString();
+        }
+        break;
+      case "label":
+        fields[key] = val.sym().toString();
         break;
     }
   }
@@ -143,5 +177,9 @@ export async function getSubscription(user: string) {
     interval: number;
     last_charged: number;
     active: boolean;
+    paused: boolean;
+    token: string;
+    referrer: string | null;
+    label: string;
   };
 }

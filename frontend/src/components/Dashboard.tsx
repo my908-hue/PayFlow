@@ -1,6 +1,7 @@
-import React, { useEffect, useState, useCallback } from "react";
-import { getSubscription, buildCancelTx, buildPayPerUseTx } from "../stellar";
+import React, { useEffect, useState } from "react";
+import { buildCancelTx, buildPayPerUseTx } from "../stellar";
 import { friendlyError } from "../utils/errors";
+import SubscriptionCard from "./SubscriptionCard";
 import SubscriptionCardSkeleton from "./Skeleton";
 import { useSubscription } from "../hooks/useSubscription";
 
@@ -10,33 +11,10 @@ interface Props {
   refreshTrigger: number;
 }
 
-function formatInterval(secs: number): string {
-  if (secs >= 2_592_000) return `${Math.round(secs / 2_592_000)}mo`;
-  if (secs >= 604_800) return `${Math.round(secs / 604_800)}w`;
-  if (secs >= 86_400) return `${Math.round(secs / 86_400)}d`;
-  return `${secs}s`;
-}
-
 export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
-  const { subscription: sub, loading, refresh: load } = useSubscription(userKey, refreshTrigger);
+  const { subscription: sub, loading, refresh } = useSubscription(userKey, refreshTrigger);
   const [actionStatus, setActionStatus] = useState<string | null>(null);
   const [ppuLoading, setPpuLoading] = useState(false);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const data = await getSubscription(userKey);
-      setSub(data);
-    } catch {
-      setSub(null);
-    } finally {
-      setLoading(false);
-    }
-  }, [userKey]);
-
-  useEffect(() => {
-    load();
-  }, [load, refreshTrigger]);
 
   async function handleCancel() {
     setActionStatus(null);
@@ -44,7 +22,7 @@ export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
       const xdr = await buildCancelTx(userKey);
       const hash = await onSign(xdr);
       setActionStatus(`Cancelled. tx: ${hash.slice(0, 12)}…`);
-      load();
+      refresh();
     } catch (e: unknown) {
       const rawMessage = e instanceof Error ? e.message : String(e);
       setActionStatus(`Error: ${friendlyError(rawMessage)}`);
@@ -58,9 +36,12 @@ export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
       const xdr = await buildPayPerUseTx(userKey, stroops);
       const hash = await onSign(xdr);
       setActionStatus(`Paid! tx: ${hash.slice(0, 12)}…`);
+      refresh();
     } catch (e: unknown) {
       const rawMessage = e instanceof Error ? e.message : String(e);
       setActionStatus(`Error: ${friendlyError(rawMessage)}`);
+    } finally {
+      setPpuLoading(false);
     }
   }
 
@@ -76,9 +57,15 @@ export default function Dashboard({ userKey, onSign, refreshTrigger }: Props) {
 
   return (
     <div className="dashboard">
-      <SubscriptionCard subscription={sub} onCancel={handleCancel} />
+      <SubscriptionCard 
+        subscription={sub} 
+        userKey={userKey}
+        onCancel={handleCancel}
+        onPause={onSign}
+        onRefresh={refresh}
+      />
 
-      {sub.active && (
+      {sub.active && !sub.paused && (
         <PayPerUseForm onPay={handlePayPerUse} loading={ppuLoading} />
       )}
 
