@@ -265,9 +265,110 @@ export async function getSubscriptionMetadata(user: string): Promise<string | nu
   }
 }
 
-export async function getMerchantSubscribers(_merchant: string): Promise<MerchantSubscriber[]> {
-  // Placeholder: this would ideally fetch from an indexer or contract events.
-  return [];
+function parseEventValueField(value: any, field: string): string {
+  if (!value) return "";
+  const base = value._value?.[field] ?? value[field];
+  if (base == null) return "";
+  if (typeof base === "string") return base;
+  if (typeof base === "number" || typeof base === "bigint") return base.toString();
+  if (typeof base.toString === "function") return base.toString();
+  return "";
+}
+
+function parseEventTime(event: any): number {
+  if (typeof event.ledgerCloseTime === "number") return event.ledgerCloseTime;
+  if (typeof event.ledgerCloseTime === "string") return Number(event.ledgerCloseTime) || 0;
+  if (typeof event.timestamp === "string") return Math.floor(Date.parse(event.timestamp) / 1000);
+  return 0;
+}
+
+export async function getMerchantSubscribers(merchant: string): Promise<MerchantSubscriber[]> {
+  try {
+    const response = await server.getEvents({
+      startLedger: undefined,
+      filters: [{ type: "contract", contractIds: [CONTRACT_ID] }],
+      limit: 1000,
+    });
+
+    const latestSubscribeByUser = new Map<
+      string,
+      {
+        merchant: string;
+        amount: string;
+        interval: number;
+        timestamp: number;
+      }
+    >();
+    const latestCancelByUser = new Map<string, number>();
+    const latestChargeByUserAndMerchant = new Map<string, number>();
+
+    for (const event of response.events) {
+      if (!event.topic || event.topic.length < 2) continue;
+      const eventType = event.topic[0]?.toString();
+      const userAddress = event.topic[1]?.toString();
+      if (!userAddress) continue;
+
+      const eventTime = parseEventTime(event);
+      switch (eventType) {
+        case "subscribed": {
+          const subscribedMerchant = parseEventValueField(event.value, "merchant");
+          const amount = parseEventValueField(event.value, "amount");
+          const intervalString = parseEventValueField(event.value, "interval");
+          const interval = Number(intervalString) || 0;
+          const existing = latestSubscribeByUser.get(userAddress);
+          if (!existing || eventTime > existing.timestamp) {
+            latestSubscribeByUser.set(userAddress, {
+              merchant: subscribedMerchant,
+              amount,
+              interval,
+              timestamp: eventTime,
+            });
+          }
+          break;
+        }
+        case "cancelled": {
+          const existingCancel = latestCancelByUser.get(userAddress) || 0;
+          if (eventTime > existingCancel) {
+            latestCancelByUser.set(userAddress, eventTime);
+          }
+          break;
+        }
+        case "charged": {
+          const chargedMerchant = parseEventValueField(event.value, "merchant");
+          const key = `${userAddress}:${chargedMerchant}`;
+          const existingCharge = latestChargeByUserAndMerchant.get(key) || 0;
+          if (eventTime > existingCharge) {
+            latestChargeByUserAndMerchant.set(key, eventTime);
+          }
+          break;
+        }
+      }
+    }
+
+    const subscribers: MerchantSubscriber[] = [];
+
+    for (const [userAddress, subscribe] of latestSubscribeByUser.entries()) {
+      if (subscribe.merchant !== merchant) continue;
+      const cancelAt = latestCancelByUser.get(userAddress) ?? 0;
+      if (cancelAt >= subscribe.timestamp) continue;
+
+      const chargeKey = `${userAddress}:${merchant}`;
+      const lastCharged = Math.max(subscribe.timestamp, latestChargeByUserAndMerchant.get(chargeKey) ?? 0);
+      const nextChargeAt = lastCharged + subscribe.interval;
+
+      subscribers.push({
+        subscriber: userAddress,
+        amount: subscribe.amount,
+        interval: subscribe.interval,
+        lastCharged,
+        nextChargeAt,
+      });
+    }
+
+    return subscribers.sort((a, b) => a.subscriber.localeCompare(b.subscriber));
+  } catch {
+    return [];
+  }
 }
 
 export async function getBalance(publicKey: string): Promise<string> {

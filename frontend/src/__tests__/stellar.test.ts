@@ -82,3 +82,62 @@ describe("fetchEvents", () => {
     expect(result).toEqual([]);
   });
 });
+
+describe("getMerchantSubscribers", () => {
+  it("returns active subscribers for the merchant and ignores cancelled subscriptions", async () => {
+    getEventsMock.mockResolvedValue({
+      events: [
+        {
+          topic: ["subscribed", "user_A"],
+          value: { merchant: "merchant_A", amount: 1000, interval: 3600 },
+          ledgerCloseTime: 1700000000,
+          txHash: "txhash1",
+        },
+        {
+          topic: ["charged", "user_A"],
+          value: { merchant: "merchant_A", amount: 1000, charged_at: 1700000000 },
+          ledgerCloseTime: 1700003600,
+          txHash: "txhash2",
+        },
+        {
+          topic: ["subscribed", "user_B"],
+          value: { merchant: "merchant_B", amount: 2000, interval: 86400 },
+          ledgerCloseTime: 1700000001,
+          txHash: "txhash3",
+        },
+        {
+          topic: ["subscribed", "user_C"],
+          value: { merchant: "merchant_A", amount: 1500, interval: 7200 },
+          ledgerCloseTime: 1700001000,
+          txHash: "txhash4",
+        },
+        {
+          topic: ["cancelled", "user_C"],
+          value: {},
+          ledgerCloseTime: 1700002000,
+          txHash: "txhash5",
+        },
+      ],
+    });
+
+    const { getMerchantSubscribers } = await import("../stellar");
+    const result = await getMerchantSubscribers("merchant_A");
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      subscriber: "user_A",
+      amount: "1000",
+      interval: 3600,
+    });
+    expect(result[0].nextChargeAt).toBe(1700007200);
+  });
+
+  it("returns an empty array if the event fetch fails", async () => {
+    getEventsMock.mockRejectedValue(new Error("Stellar RPC Network Failure"));
+
+    const { getMerchantSubscribers } = await import("../stellar");
+    const result = await getMerchantSubscribers("merchant_A");
+
+    expect(result).toEqual([]);
+  });
+});
