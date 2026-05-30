@@ -47,10 +47,52 @@ export default function SubscriptionCard({
   onCancel,
   onPause,
   onRefresh,
-}: SubscriptionCardProps) {
-  const { merchant, amount, interval, last_charged, active } = subscription;
+}: SubscriptionCardProps & { userKey: string }) {
+  const { merchant, amount, interval, last_charged, active, paused, trial_duration } = subscription;
   const nextChargeTimestamp = last_charged + interval;
   const xlm = (Number(amount) / STROOPS_PER_XLM).toFixed(2);
+  const { isInTrial } = formatTrialStatus(trial_duration || 0, last_charged);
+
+  const [showPauseConfirm, setShowPauseConfirm] = React.useState(false);
+  const [pauseLoading, setPauseLoading] = React.useState(false);
+  const [resumeLoading, setResumeLoading] = React.useState(false);
+  const [pauseStatus, setPauseStatus] = React.useState("");
+
+  const handlePause = async () => {
+    setPauseLoading(true);
+    setPauseStatus("");
+    try {
+      // We pass userKey to the parent which handles the TX.
+      // But we can just use the provided onPause callback which takes XDR.
+      // Wait, onPause expects XDR. We should build it here.
+      const { buildPauseTx } = await import("../stellar");
+      const xdr = await buildPauseTx(userKey);
+      await onPause(xdr);
+      setPauseStatus("Paused successfully.");
+      setShowPauseConfirm(false);
+      onRefresh();
+    } catch (e: any) {
+      setPauseStatus(`Error: ${e.message}`);
+    } finally {
+      setPauseLoading(false);
+    }
+  };
+
+  const handleResume = async () => {
+    setResumeLoading(true);
+    setPauseStatus("");
+    try {
+      const { buildResumeTx } = await import("../stellar");
+      const xdr = await buildResumeTx(userKey);
+      await onPause(xdr); // use same onSign equivalent callback
+      setPauseStatus("Resumed successfully.");
+      onRefresh();
+    } catch (e: any) {
+      setPauseStatus(`Error: ${e.message}`);
+    } finally {
+      setResumeLoading(false);
+    }
+  };
 
   return (
     <div className="card">

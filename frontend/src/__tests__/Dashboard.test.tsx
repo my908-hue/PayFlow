@@ -18,6 +18,7 @@ const ACTIVE_SUB = {
   interval: 2592000,
   last_charged: 0,
   active: true,
+  paused: false,
 };
 
 function setup(sub: typeof ACTIVE_SUB | null = ACTIVE_SUB) {
