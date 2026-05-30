@@ -24,7 +24,7 @@ describe("useToast hook", () => {
             add
           </button>
           <div data-testid="list">
-            {toasts.map((t) => (
+            {toasts.map((t: { id: string; message: string }) => (
               <div key={t.id} data-testid={`toast-${t.id}`}>
                 {t.message}
               </div>
@@ -61,7 +61,7 @@ describe("useToast hook", () => {
             add
           </button>
           <div data-testid="list">
-            {toasts.map((t) => (
+            {toasts.map((t: { id: string; message: string }) => (
               <div key={t.id} data-testid={`toast-${t.id}`}>
                 {t.message}
               </div>

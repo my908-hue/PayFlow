@@ -89,6 +89,15 @@ export default function App() {
         description: "Show keyboard shortcuts",
         action: () => setShowHelp((prev) => !prev),
       },
+      {
+        key: "x",
+        description: "Cancel active subscription",
+        action: () => {
+          // This shortcut is handled specifically in Dashboard.tsx
+          // where it has access to the subscription state.
+          // We include it here solely for documentation in the Help Modal.
+        },
+      },
     ],
   });
 

@@ -1,9 +1,8 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { buildCancelTx, buildPayPerUseTx } from "../stellar";
 import { friendlyError } from "../utils/errors";
 import SubscriptionCard from "./SubscriptionCard";
 import SubscriptionCardSkeleton from "./Skeleton";
-import SubscriptionCard from "./SubscriptionCard";
 import SubscriptionHistory from "./SubscriptionHistory";
 import PayPerUseForm from "./PayPerUseForm";
 import ConfirmModal from "./ConfirmModal";
@@ -36,6 +35,29 @@ export default function Dashboard({ userKey, onSign, refreshTrigger, announce }:
   const [dailyLimitRefresh, setDailyLimitRefresh] = useState(0);
 
   usePolling({ callback: refresh, interval: 30000, enabled: !!sub?.active });
+
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key.toLowerCase() !== "x") return;
+
+      const target = e.target as HTMLElement;
+      if (
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.isContentEditable
+      ) {
+        return;
+      }
+
+      if (sub?.active && !showConfirm) {
+        e.preventDefault();
+        setShowConfirm(true);
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [sub?.active, showConfirm]);
 
   async function performCancel() {
     setShowConfirm(false);
@@ -86,7 +108,10 @@ export default function Dashboard({ userKey, onSign, refreshTrigger, announce }:
         <>
           <SubscriptionCard
             subscription={sub}
+            userKey={userKey}
             onCancel={() => setShowConfirm(true)}
+            onPause={onSign}
+            onRefresh={refresh}
           />
 
           {cancelPending && (

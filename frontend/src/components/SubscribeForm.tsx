@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { buildSubscribeTx } from "../stellar";
+import { StrKey } from "@stellar/stellar-sdk";
+import { buildSubscribeTx, DEFAULT_TOKEN } from "../stellar";
 import { friendlyError } from "../utils/errors";
 import { STROOPS_PER_XLM, BILLING_INTERVALS } from "../constants";
 import { useFormValidation } from "../hooks/useFormValidation";
@@ -24,7 +25,7 @@ export default function SubscribeForm({ userKey, onSign, onSuccess, announce }: 
 
   function validateReferrer(value: string): string | null {
     if (!value) return null; // Optional field
-    if (!isValidStellarAddress(value)) {
+    if (!StrKey.isValidEd25519PublicKey(value)) {
       return "Invalid Stellar address format";
     }
     return null;
@@ -37,7 +38,7 @@ export default function SubscribeForm({ userKey, onSign, onSuccess, announce }: 
     announce("Transaction submitted");
     const hash = await tx.submit(async () => {
       const stroops = BigInt(Math.round(parseFloat(amount) * STROOPS_PER_XLM));
-      const xdr = await buildSubscribeTx(userKey, merchant, stroops, BigInt(interval));
+      const xdr = await buildSubscribeTx(userKey, merchant, stroops, BigInt(interval), DEFAULT_TOKEN, null, "");
       return onSign(xdr);
     });
 

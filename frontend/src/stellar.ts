@@ -115,6 +115,14 @@ export async function buildPayPerUseTx(user: string, amount: bigint): Promise<st
   ]);
 }
 
+export async function buildPauseTx(user: string): Promise<string> {
+  return buildTx(user, "pause", [addressVal(user)]);
+}
+
+export async function buildResumeTx(user: string): Promise<string> {
+  return buildTx(user, "resume", [addressVal(user)]);
+}
+
 export async function buildSetDailyLimitTx(user: string, amount: bigint): Promise<string> {
   return buildTx(user, "set_daily_limit", [
     addressVal(user),
@@ -211,10 +219,9 @@ export async function getSubscription(user: string): Promise<Subscription | null
 
   if (retval.switch().name === "scvVoid") return null;
 
-  const inner = retval.value();
   const fields: Record<string, unknown> = {};
 
-  for (const entry of inner.map() ?? []) {
+  for (const entry of retval.map() ?? []) {
     const key = entry.key().sym().toString();
     const val = entry.val();
 
@@ -259,6 +266,8 @@ export async function getSubscription(user: string): Promise<Subscription | null
       interval: number;
       last_charged: number;
       active: boolean;
+      paused: boolean;
+      trial_duration?: number;
     }),
     label: label || undefined,
   };
