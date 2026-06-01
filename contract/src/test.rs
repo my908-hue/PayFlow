@@ -242,7 +242,35 @@ fn test_pay_per_use() {
 
 #[test]
 #[should_panic]
-fn test_pay_per_use_inactive() {
+fn test_pay_per_use_exhausts_allowance() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let token_admin = Address::generate(&env);
+    let token_id = env.register_stellar_asset_contract_v2(token_admin.clone());
+    let token_addr = token_id.address();
+    let contract_id = env.register_contract(None, FlowPay);
+    let user = Address::generate(&env);
+    let merchant = Address::generate(&env);
+
+    let sac = StellarAssetClient::new(&env, &token_addr);
+    sac.mint(&user, &10_0000000);
+
+    // Approve only 6 stroops total
+    let token = TokenClient::new(&env, &token_addr);
+    token.approve(&user, &contract_id, &6_0000000, &200);
+
+    let client = FlowPayClient::new(&env, &contract_id);
+    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+
+    // Each call spends 3; second call exhausts the remaining allowance
+    client.pay_per_use(&user, &3_0000000);
+    client.pay_per_use(&user, &3_0000000);
+    // Allowance is now 0 — this must panic
+    client.pay_per_use(&user, &1_0000000);
+}
+
+
     let (env, contract_id, token_addr, user, merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
 
