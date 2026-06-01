@@ -768,8 +768,109 @@ fn test_upgrade_event_emitted() {
 }
 
 // ─────────────────────────────────────────────
-// Issue #96: referral tracking tests
+// Issue: events.rs publish helpers isolation tests
 // ─────────────────────────────────────────────
+
+#[test]
+fn test_publish_subscribed_event() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let amount: i128 = 1_0000000;
+    let interval: u64 = 86400;
+    client.subscribe(&user, &merchant, &amount, &interval, &token_addr, &None, &None);
+
+    let events = env.events().all();
+    let subscribed = events.iter().find(|(_, topics, _)| {
+        topics.get(0).unwrap().try_into_val::<_, Symbol>(&env)
+            .map(|s| s == Symbol::new(&env, "subscribed"))
+            .unwrap_or(false)
+    });
+    assert!(subscribed.is_some(), "subscribed event must be emitted");
+    let (_, topics, data) = subscribed.unwrap();
+    let topic_user: Address = topics.get(1).unwrap().try_into_val(&env).unwrap();
+    let (emitted_merchant, emitted_amount, emitted_interval): (Address, i128, u64) =
+        data.try_into_val(&env).unwrap();
+    assert_eq!(topic_user, user);
+    assert_eq!(emitted_merchant, merchant);
+    assert_eq!(emitted_amount, amount);
+    assert_eq!(emitted_interval, interval);
+}
+
+#[test]
+fn test_publish_charged_event() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let amount: i128 = 1_0000000;
+    let interval: u64 = 86400;
+    client.subscribe(&user, &merchant, &amount, &interval, &token_addr, &None, &None);
+
+    env.ledger().with_mut(|l| { l.timestamp += interval + 1; });
+    let charge_time = env.ledger().timestamp();
+    client.charge(&user);
+
+    let events = env.events().all();
+    let charged = events.iter().find(|(_, topics, _)| {
+        topics.get(0).unwrap().try_into_val::<_, Symbol>(&env)
+            .map(|s| s == Symbol::new(&env, "charged"))
+            .unwrap_or(false)
+    });
+    assert!(charged.is_some(), "charged event must be emitted");
+    let (_, topics, data) = charged.unwrap();
+    let topic_user: Address = topics.get(1).unwrap().try_into_val(&env).unwrap();
+    let (emitted_merchant, emitted_amount, emitted_at): (Address, i128, u64) =
+        data.try_into_val(&env).unwrap();
+    assert_eq!(topic_user, user);
+    assert_eq!(emitted_merchant, merchant);
+    assert_eq!(emitted_amount, amount);
+    assert_eq!(emitted_at, charge_time);
+}
+
+#[test]
+fn test_publish_cancelled_event() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+    client.cancel(&user);
+
+    let events = env.events().all();
+    let cancelled = events.iter().find(|(_, topics, _)| {
+        topics.get(0).unwrap().try_into_val::<_, Symbol>(&env)
+            .map(|s| s == Symbol::new(&env, "cancelled"))
+            .unwrap_or(false)
+    });
+    assert!(cancelled.is_some(), "cancelled event must be emitted");
+    let (_, topics, _) = cancelled.unwrap();
+    let topic_user: Address = topics.get(1).unwrap().try_into_val(&env).unwrap();
+    assert_eq!(topic_user, user);
+}
+
+#[test]
+fn test_publish_pay_per_use_event() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let amount: i128 = 3_0000000;
+    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+    client.pay_per_use(&user, &amount);
+
+    let events = env.events().all();
+    let ppu = events.iter().find(|(_, topics, _)| {
+        topics.get(0).unwrap().try_into_val::<_, Symbol>(&env)
+            .map(|s| s == Symbol::new(&env, "pay_per_use"))
+            .unwrap_or(false)
+    });
+    assert!(ppu.is_some(), "pay_per_use event must be emitted");
+    let (_, topics, data) = ppu.unwrap();
+    let topic_user: Address = topics.get(1).unwrap().try_into_val(&env).unwrap();
+    let (emitted_merchant, emitted_amount): (Address, i128) = data.try_into_val(&env).unwrap();
+    assert_eq!(topic_user, user);
+    assert_eq!(emitted_merchant, merchant);
+    assert_eq!(emitted_amount, amount);
+}
+
 
 #[test]
 fn test_referral_stored_on_subscribe() {
