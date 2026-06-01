@@ -162,6 +162,11 @@ impl FlowPay {
         assert!(amount > 0, "amount must be positive");
         assert!(interval > 0, "interval must be positive");
 
+        use soroban_sdk::xdr::ToXdr;
+        if token.clone().to_xdr(&env).get(7) == Some(0) {
+            env.panic_with_error(ContractError::InvalidTokenAddress);
+        }
+
         let token_client = token::Client::new(&env, &token);
         let allowance = token_client.allowance(&user, &env.current_contract_address());
         assert!(allowance >= amount, "insufficient allowance");
@@ -716,3 +721,4 @@ fn is_contract_paused(env: &Env) -> bool {
 fn ensure_contract_not_paused(env: &Env) {
     assert!(!is_contract_paused(env), "contract is paused");
 }
+

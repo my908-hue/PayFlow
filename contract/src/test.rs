@@ -545,6 +545,54 @@ fn test_batch_charge_charged_and_skipped() {
 }
 
 #[test]
+fn test_batch_charge_ordering() {
+    let (env, contract_id, token_addr, user_1, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    
+    let user_2 = Address::generate(&env);
+    let sac = StellarAssetClient::new(&env, &token_addr);
+    sac.mint(&user_2, &10_000_0000000);
+    let token = TokenClient::new(&env, &token_addr);
+    token.approve(&user_2, &contract_id, &10_000_0000000, &200);
+
+    let user_3 = Address::generate(&env);
+    // user_3 has no subscription
+
+    let user_4 = Address::generate(&env);
+    sac.mint(&user_4, &10_000_0000000);
+    token.approve(&user_4, &contract_id, &10_000_0000000, &200);
+
+    let interval = 86400;
+
+    // user_1: valid, will be charged
+    client.subscribe(&user_1, &merchant, &1_0000000, &interval, &token_addr, &None, &None);
+
+    // user_2: valid, will be charged
+    client.subscribe(&user_2, &merchant, &1_0000000, &interval, &token_addr, &None, &None);
+
+    // user_4: valid but skipped (we will subscribe right before charge so interval not elapsed)
+    
+    env.ledger().with_mut(|l| { l.timestamp += interval + 1; });
+
+    client.subscribe(&user_4, &merchant, &1_0000000, &interval, &token_addr, &None, &None);
+
+    let mut users = soroban_sdk::Vec::new(&env);
+    // Order: user_2 (Charged), user_3 (Failed), user_4 (Skipped), user_1 (Charged)
+    users.push_back(user_2.clone());
+    users.push_back(user_3.clone());
+    users.push_back(user_4.clone());
+    users.push_back(user_1.clone());
+
+    let results = client.batch_charge(&users);
+
+    assert_eq!(results.len(), 4);
+    assert_eq!(results.get(0).unwrap(), crate::ChargeResult::Charged);
+    assert_eq!(results.get(1).unwrap(), crate::ChargeResult::NoSubscription);
+    assert_eq!(results.get(2).unwrap(), crate::ChargeResult::Skipped);
+    assert_eq!(results.get(3).unwrap(), crate::ChargeResult::Charged);
+}
+
+#[test]
 fn test_batch_charge_no_subscription() {
     let (env, contract_id, _token_addr, _user, _merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
@@ -555,6 +603,37 @@ fn test_batch_charge_no_subscription() {
 
     let results = client.batch_charge(&users);
     assert_eq!(results.get(0).unwrap(), crate::ChargeResult::NoSubscription);
+}
+
+#[test]
+fn test_batch_charge_stress() {
+    let (env, contract_id, token_addr, _user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    let token = TokenClient::new(&env, &token_addr);
+    let sac = StellarAssetClient::new(&env, &token_addr);
+
+    env.budget().reset_unlimited();
+
+    let num_users = 100;
+    let mut users = soroban_sdk::Vec::new(&env);
+    let interval = 86400;
+
+    for _ in 0..num_users {
+        let u = Address::generate(&env);
+        sac.mint(&u, &10_000_0000000);
+        token.approve(&u, &contract_id, &10_000_0000000, &200);
+        client.subscribe(&u, &merchant, &1_0000000, &interval, &token_addr, &None, &None);
+        users.push_back(u);
+    }
+
+    env.ledger().with_mut(|l| { l.timestamp += interval + 1; });
+
+    let results = client.batch_charge(&users);
+    
+    assert_eq!(results.len(), num_users);
+    for r in results.into_iter() {
+        assert_eq!(r, crate::ChargeResult::Charged);
+    }
 }
 
 #[test]
@@ -1194,6 +1273,8 @@ fn test_custom_sac_token_end_to_end_flow() {
     // Verify subscription is still active after pay_per_use
     let sub_final = client.get_subscription(&user).unwrap();
     assert!(sub_final.active, "subscription should remain active after pay_per_use");
+}
+
 // ─────────────────────────────────────────────────────────────
 // Issue #237: get_token() read function tests
 // ─────────────────────────────────────────────────────────────
@@ -1284,4 +1365,54 @@ fn test_set_grace_period_emits_event() {
 
     assert_eq!(topic_symbol, Symbol::new(&env, "grace_period_updated"));
     assert_eq!(emitted_seconds, 7200u64);
+}
+
+// ─────────────────────────────────────────────
+// Issue #243: Token address validation
+// ─────────────────────────────────────────────
+
+#[test]
+#[should_panic(expected = "Error(Contract, #11)")]
+fn test_subscribe_non_contract_address() {
+    let (env, contract_id, _token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    // Provide a non-contract address (just an account)
+    use soroban_sdk::xdr::{ScAddress, AccountId, PublicKey, Uint256};
+    use soroban_sdk::TryFromVal;
+    let account_id = AccountId(PublicKey::PublicKeyTypeEd25519(Uint256([0; 32])));
+    let non_contract_token = Address::try_from_val(&env, &ScAddress::Account(account_id)).unwrap();
+
+    client.subscribe(&user, &merchant, &1_0000000, &86400, &non_contract_token, &None, &None);
+}
+
+// Issue #232: charge() insufficient-allowance error path
+// ─────────────────────────────────────────────
+
+/// If a user's token allowance drops below `sub.amount` between subscribe and
+/// charge time, `transfer_from` must fail and propagate the error.
+#[test]
+#[should_panic]
+fn test_charge_insufficient_allowance() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let amount: i128 = 5_0000000;
+    let interval: u64 = 86400;
+
+    // Subscribe with sufficient allowance
+    client.subscribe(&user, &merchant, &amount, &interval, &token_addr, &None, &None);
+
+    // Revoke allowance — set it to 0
+    let token = TokenClient::new(&env, &token_addr);
+    token.approve(&user, &contract_id, &0, &200);
+
+    // Advance ledger past the interval
+    env.ledger().with_mut(|l| {
+        l.timestamp += interval + 1;
+    });
+
+    // charge() should panic because transfer_from fails with insufficient allowance
+    client.charge(&user);
+
 }
