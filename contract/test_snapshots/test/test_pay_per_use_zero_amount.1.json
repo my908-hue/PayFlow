@@ -1292,7 +1292,7 @@
             "data": {
               "vec": [
                 {
-                  "string": "caught panic 'amount must be positive' from contract function 'Symbol(obj#261)'"
+                  "string": "caught panic 'amount must be positive' from contract function 'Symbol(obj#265)'"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"

@@ -17,10 +17,13 @@ function Test() {
 
 function mockFreighterNetwork(networkPassphrase: string) {
   window.freighter = {
+    isConnected: vi.fn().mockResolvedValue(true),
+    getPublicKey: vi.fn().mockResolvedValue("GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"),
     getNetwork: vi.fn().mockResolvedValue({
       network: "TESTNET",
       networkPassphrase,
     }),
+    signTransaction: vi.fn().mockResolvedValue({ signedTxXdr: "mock-xdr" }),
   } as typeof window.freighter;
 }
 

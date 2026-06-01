@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback } from "react";
-import { getChargeHistory } from "../stellar";
+import React, { useMemo } from "react";
+import { useContractEvents } from "../hooks/useContractEvents";
 import { ChargeEvent } from "../types";
 import { STROOPS_PER_XLM } from "../constants";
 import Spinner from "./Spinner";
@@ -28,26 +28,39 @@ function truncateHash(hash: string): string {
 }
 
 export default function SubscriptionHistory({ userKey }: Props) {
-  const [events, setEvents] = useState<ChargeEvent[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { events: contractEvents, loading, error, refresh } = useContractEvents("charged", userKey);
 
-  const fetchHistory = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await getChargeHistory(userKey);
-      setEvents(data);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setLoading(false);
-    }
-  }, [userKey]);
+  // Transform ContractEvent[] to ChargeEvent[]
+  const events = useMemo<ChargeEvent[]>(() => {
+    return contractEvents
+      .map((event) => {
+        let merchant = "";
+        let amount = "0";
+        let timestamp = 0;
 
-  useEffect(() => {
-    fetchHistory();
-  }, [fetchHistory]);
+        try {
+          const val = event.data as any;
+          if (val?._value?.merchant) merchant = val._value.merchant.toString();
+          if (val?._value?.amount) amount = val._value.amount.toString();
+          if (val?._value?.charged_at) timestamp = Number(val._value.charged_at);
+          
+          // Fallback to event timestamp if charged_at is not available
+          if (timestamp === 0 && event.timestamp) {
+            timestamp = Math.floor(new Date(event.timestamp).getTime() / 1000);
+          }
+        } catch (e) {
+          console.warn("Charge event parsing failed:", e);
+        }
+
+        return {
+          date: new Date(timestamp * 1000),
+          amount,
+          txHash: event.txHash,
+          merchant,
+        };
+      })
+      .sort((a, b) => b.date.getTime() - a.date.getTime());
+  }, [contractEvents]);
 
   if (loading) {
     return (
@@ -68,7 +81,7 @@ export default function SubscriptionHistory({ userKey }: Props) {
           <p style={{ color: "var(--color-danger)", marginBottom: "var(--space-3)" }}>
             Unable to load charge history.
           </p>
-          <button onClick={fetchHistory} className="btn-primary">
+          <button onClick={refresh} className="btn-primary">
             Retry
           </button>
         </div>

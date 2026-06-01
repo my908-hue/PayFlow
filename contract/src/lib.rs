@@ -65,6 +65,8 @@ pub enum DataKey {
     ChargeHistory(Address),
     // Feature: emergency contract pause
     ContractPaused,
+    // Pending admin for two-step transfer
+    PendingAdmin,
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -181,13 +183,25 @@ impl FlowPay {
             trial_duration,
         };
 
+        let existing_sub: Option<Subscription> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Subscription(user.clone()));
+
+        let should_increment = existing_sub
+            .as_ref()
+            .map(|existing| !existing.active)
+            .unwrap_or(true);
+
         env.storage()
             .persistent()
             .set(&DataKey::Subscription(user.clone()), &sub);
 
         extend_subscription_ttl(&env, &user);
 
-        subscription_count::increment(&env);
+        if should_increment {
+            subscription_count::increment(&env);
+        }
         referral::store_referral(&env, &user, &referrer);
         events::publish_subscribed(&env, &user, &sub);
     }
@@ -404,8 +418,7 @@ impl FlowPay {
 
         env.storage().persistent().set(&key, &sub);
 
-        env.events()
-            .publish((Symbol::new(&env, "paused"), user), ());
+        events::publish_paused(&env, &user);
     }
 
     /// Resumes `user`'s paused subscription.
@@ -446,8 +459,7 @@ impl FlowPay {
 
         env.storage().persistent().set(&key, &sub);
 
-        env.events()
-            .publish((Symbol::new(&env, "resumed"), user), ());
+        events::publish_resumed(&env, &user);
     }
 
     /// Pauses all user-facing payment operations for the contract.
@@ -468,25 +480,24 @@ impl FlowPay {
         events::publish_contract_unpaused(&env);
     }
 
-    /// Transfers admin rights to a new address.
-    ///
-    /// # Parameters
-    ///
-    /// - `new_admin`: The address that will become the new admin.
-    ///
-    /// # Returns
-    ///
-    /// Returns nothing.
+    /// Proposes a new admin (step 1 of two-step transfer).
+    /// The proposed address must call `accept_admin()` to complete the transfer.
     ///
     /// # Auth
     ///
     /// Requires authorization from the current admin.
-    ///
-    /// # Side Effects
-    ///
-    /// Updates the admin address in storage and emits `admin_transferred` event.
     pub fn transfer_admin(env: Env, new_admin: Address) {
         admin::transfer_admin(&env, &new_admin);
+    }
+
+    /// Accepts a pending admin transfer (step 2 of two-step transfer).
+    /// Emits `admin_transferred` and replaces the active admin.
+    ///
+    /// # Auth
+    ///
+    /// Requires authorization from the pending (new) admin.
+    pub fn accept_admin(env: Env) {
+        admin::accept_admin(&env);
     }
 
     /// Returns whether the contract is currently paused.
@@ -534,6 +545,12 @@ impl FlowPay {
     pub fn set_grace_period(env: Env, seconds: u64) {
         admin::require_admin(&env);
         grace::set_grace_period(&env, seconds);
+        events::publish_grace_period_updated(&env, seconds);
+    }
+
+    /// Returns the current grace period in seconds. Returns 0 if not set.
+    pub fn get_grace_period(env: Env) -> u64 {
+        grace::get_grace_period(&env)
     }
 
     /// Adds a merchant to the whitelist.
@@ -558,7 +575,8 @@ impl FlowPay {
     /// Only the contract admin can call this.
     pub fn set_fee(env: Env, collector: Address, bps: u32) {
         admin::require_admin(&env);
-        fee::set_fee(&env, collector, bps);
+        fee::set_fee(&env, collector.clone(), bps);
+        events::publish_fee_updated(&env, &collector, bps);
     }
 
     // ─────────────────────────────────────────────────────────────

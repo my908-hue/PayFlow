@@ -156,6 +156,74 @@ fn test_subscription_struct_fields_match_input() {
 }
 
 #[test]
+#[should_panic]
+fn test_subscribe_non_whitelisted_merchant_panics() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    env.as_contract(&contract_id, || {
+        storage::set_admin(&env, &admin);
+    });
+
+    client.set_whitelist_enabled(&true);
+    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+}
+
+#[test]
+fn test_subscribe_whitelisted_merchant_succeeds() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    env.as_contract(&contract_id, || {
+        storage::set_admin(&env, &admin);
+    });
+
+    client.set_whitelist_enabled(&true);
+    client.add_merchant(&merchant);
+    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+
+    let sub = client.get_subscription(&user).unwrap();
+    assert_eq!(sub.merchant, merchant);
+}
+
+#[test]
+fn test_set_whitelist_enabled_false_allows_any_merchant() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    env.as_contract(&contract_id, || {
+        storage::set_admin(&env, &admin);
+    });
+
+    client.set_whitelist_enabled(&true);
+    client.set_whitelist_enabled(&false);
+    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+
+    let sub = client.get_subscription(&user).unwrap();
+    assert_eq!(sub.merchant, merchant);
+}
+
+#[test]
+#[should_panic]
+fn test_non_admin_add_and_remove_merchant_panics() {
+    let (env, contract_id, _token_addr, _user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    env.as_contract(&contract_id, || {
+        storage::set_admin(&env, &admin);
+    });
+
+    env.set_auths(&[]);
+
+    client.add_merchant(&merchant);
+    client.remove_merchant(&merchant);
+}
+
+#[test]
 fn test_cancel() {
     let (env, contract_id, token_addr, user, merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
@@ -522,6 +590,24 @@ fn test_active_count_increments_on_subscribe() {
 }
 
 #[test]
+fn test_active_count_does_not_double_count_on_resubscribe() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let merchant_b = Address::generate(&env);
+
+    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+    assert_eq!(client.get_active_count(), 1);
+
+    client.subscribe(&user, &merchant_b, &2_0000000, &172800, &token_addr, &None, &None);
+    assert_eq!(client.get_active_count(), 1);
+
+    let sub = client.get_subscription(&user).unwrap();
+    assert_eq!(sub.merchant, merchant_b);
+    assert_eq!(sub.amount, 2_0000000);
+}
+
+#[test]
 fn test_active_count_decrements_on_cancel() {
     let (env, contract_id, token_addr, user, merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
@@ -885,41 +971,36 @@ fn test_double_initialize() {
 fn test_transfer_admin() {
     let (env, contract_id, _token_addr, old_admin, _merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
-    
-    // Set initial admin
+
     env.as_contract(&contract_id, || {
         storage::set_admin(&env, &old_admin);
     });
 
     let new_admin = Address::generate(&env);
-    
-    // Transfer admin rights
+
+    // Step 1: propose
     client.transfer_admin(&new_admin);
-    
-    // Verify new admin is set
-    let current_admin = env.as_contract(&contract_id, || {
-        storage::get_admin(&env)
-    });
-    
-    assert_eq!(current_admin, new_admin, "admin should be updated to new_admin");
+    // Step 2: accept
+    client.accept_admin();
+
+    let current_admin = env.as_contract(&contract_id, || storage::get_admin(&env));
+    assert_eq!(current_admin, new_admin);
 }
 
 #[test]
 fn test_transfer_admin_event_emitted() {
     let (env, contract_id, _token_addr, old_admin, _merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
-    
-    // Set initial admin
+
     env.as_contract(&contract_id, || {
         storage::set_admin(&env, &old_admin);
     });
 
     let new_admin = Address::generate(&env);
-    
-    // Transfer admin rights
+
     client.transfer_admin(&new_admin);
-    
-    // Verify event was emitted
+    client.accept_admin();
+
     let events = env.events().all();
     let (_, topics, data) = events.get(events.len() - 1).unwrap();
     let topic_symbol: Symbol = topics.get(0).unwrap().try_into_val(&env).unwrap();
@@ -934,24 +1015,43 @@ fn test_transfer_admin_event_emitted() {
 fn test_transfer_admin_requires_auth() {
     let (env, contract_id, _token_addr, old_admin, _merchant) = setup();
     let client = FlowPayClient::new(&env, &contract_id);
-    
-    // Set initial admin
+
     env.as_contract(&contract_id, || {
         storage::set_admin(&env, &old_admin);
     });
 
     let new_admin = Address::generate(&env);
-    
-    // This should work because mock_all_auths is enabled in setup
-    // In a real scenario without mock_all_auths, this would require old_admin's signature
+
     client.transfer_admin(&new_admin);
-    
-    // Verify the transfer succeeded
-    let current_admin = env.as_contract(&contract_id, || {
-        storage::get_admin(&env)
-    });
-    
+    client.accept_admin();
+
+    let current_admin = env.as_contract(&contract_id, || storage::get_admin(&env));
     assert_eq!(current_admin, new_admin);
+}
+
+#[test]
+fn test_old_admin_loses_access_after_transfer() {
+    let (env, contract_id, _token_addr, old_admin, _merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    env.as_contract(&contract_id, || {
+        storage::set_admin(&env, &old_admin);
+    });
+
+    let new_admin = Address::generate(&env);
+    client.transfer_admin(&new_admin);
+    client.accept_admin();
+
+    let current_admin = env.as_contract(&contract_id, || storage::get_admin(&env));
+    assert_ne!(current_admin, old_admin);
+}
+
+#[test]
+#[should_panic(expected = "no pending admin")]
+fn test_accept_admin_without_proposal_panics() {
+    let (env, contract_id, _token_addr, _user, _merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    client.accept_admin();
 }
 
 #[test]
@@ -1037,4 +1137,74 @@ fn test_get_token_returns_initialized_token() {
 
     client.initialize(&token_addr);
     assert_eq!(client.get_token(), Some(token_addr));
+}
+
+// ─────────────────────────────────────────────
+// Issue: get_grace_period getter
+// ─────────────────────────────────────────────
+
+#[test]
+fn test_get_grace_period_default_zero() {
+    let (env, contract_id, _token_addr, _user, _merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    assert_eq!(client.get_grace_period(), 0);
+}
+
+#[test]
+fn test_get_grace_period_after_set() {
+    let (env, contract_id, _token_addr, user, _merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    env.as_contract(&contract_id, || {
+        storage::set_admin(&env, &user);
+    });
+    client.set_grace_period(&3600);
+    assert_eq!(client.get_grace_period(), 3600);
+}
+
+// ─────────────────────────────────────────────
+// Issue: fee_updated event on set_fee
+// ─────────────────────────────────────────────
+
+#[test]
+fn test_set_fee_emits_event() {
+    let (env, contract_id, _token_addr, user, _merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    env.as_contract(&contract_id, || {
+        storage::set_admin(&env, &user);
+    });
+
+    let collector = Address::generate(&env);
+    client.set_fee(&collector, &100u32);
+
+    let events = env.events().all();
+    let (_, topics, data) = events.get(events.len() - 1).unwrap();
+    let topic_symbol: Symbol = topics.get(0).unwrap().try_into_val(&env).unwrap();
+    let (emitted_collector, emitted_bps): (Address, u32) = data.try_into_val(&env).unwrap();
+
+    assert_eq!(topic_symbol, Symbol::new(&env, "fee_updated"));
+    assert_eq!(emitted_collector, collector);
+    assert_eq!(emitted_bps, 100u32);
+}
+
+// ─────────────────────────────────────────────
+// Issue: grace_period_updated event on set_grace_period
+// ─────────────────────────────────────────────
+
+#[test]
+fn test_set_grace_period_emits_event() {
+    let (env, contract_id, _token_addr, user, _merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+    env.as_contract(&contract_id, || {
+        storage::set_admin(&env, &user);
+    });
+
+    client.set_grace_period(&7200u64);
+
+    let events = env.events().all();
+    let (_, topics, data) = events.get(events.len() - 1).unwrap();
+    let topic_symbol: Symbol = topics.get(0).unwrap().try_into_val(&env).unwrap();
+    let emitted_seconds: u64 = data.try_into_val(&env).unwrap();
+
+    assert_eq!(topic_symbol, Symbol::new(&env, "grace_period_updated"));
+    assert_eq!(emitted_seconds, 7200u64);
 }

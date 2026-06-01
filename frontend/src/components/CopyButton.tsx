@@ -41,7 +41,7 @@ export default function CopyButton({ text, ariaLabel = "Copy address" }: Props) 
     <button
       className="btn-secondary copy-btn"
       onClick={() => copy(text)}
-      title={error ? "Copy failed" : "Copy to clipboard"}
+      title={copied ? "Copied!" : error ? "Copy failed" : "Copy to clipboard"}
       aria-label={ariaLabel}
     >
       {error ? <ErrorIcon /> : copied ? <CheckIcon /> : <CopyIcon />}

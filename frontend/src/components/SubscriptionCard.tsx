@@ -123,7 +123,7 @@ export default function SubscriptionCard({
         <div className="subscription-row">
           <span className="subscription-row__label">Next charge</span>
           <span className="subscription-row__value">
-            {active ? (
+            {active && !paused ? (
               <NextChargeCountdown nextChargeTimestamp={nextChargeTimestamp} />
             ) : (
               "—"

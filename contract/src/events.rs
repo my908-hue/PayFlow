@@ -28,6 +28,16 @@ pub fn publish_cancelled(env: &Env, user: &Address) {
         .publish((Symbol::new(env, "cancelled"), user.clone()), ());
 }
 
+pub fn publish_paused(env: &Env, user: &Address) {
+    env.events()
+        .publish((Symbol::new(env, "paused"), user.clone()), ());
+}
+
+pub fn publish_resumed(env: &Env, user: &Address) {
+    env.events()
+        .publish((Symbol::new(env, "resumed"), user.clone()), ());
+}
+
 pub fn publish_upgraded(env: &Env, new_wasm_hash: &BytesN<32>) {
     env.events()
         .publish((Symbol::new(env, "upgraded"),), new_wasm_hash.clone());
@@ -58,4 +68,16 @@ pub fn publish_admin_transferred(env: &Env, old_admin: &Address, new_admin: &Add
         (Symbol::new(env, "admin_transferred"),),
         (old_admin.clone(), new_admin.clone()),
     );
+}
+
+pub fn publish_fee_updated(env: &Env, collector: &Address, bps: u32) {
+    env.events().publish(
+        (Symbol::new(env, "fee_updated"),),
+        (collector.clone(), bps),
+    );
+}
+
+pub fn publish_grace_period_updated(env: &Env, seconds: u64) {
+    env.events()
+        .publish((Symbol::new(env, "grace_period_updated"),), seconds);
 }
