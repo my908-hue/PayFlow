@@ -278,7 +278,7 @@ impl FlowPay {
         extend_subscription_ttl(&env, &user);
 
         subscription_history::record_charge(&env, &user, now);
-        events::publish_charged(&env, &user, &sub, now);
+        events::publish_charged(&env, &user, &sub, 0, now);
     }
 
     pub fn extend_subscription_ttl(env: Env, user: Address) {

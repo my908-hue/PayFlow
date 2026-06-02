@@ -25,7 +25,7 @@ export default function WalletBar({
             <CopyButton text={publicKey} ariaLabel="Copy wallet address" />
           </div>
         </div>
-        <BalanceDisplay publicKey={publicKey} />
+        <BalanceDisplay address={publicKey} />
         <NetworkBadge />
       </div>
       <button onClick={onDisconnect} className="btn-secondary">

@@ -78,7 +78,7 @@ export default function SubscribeForm({ userKey, onSign, onSuccess, announce }: 
         {errors.merchant && <span className="text-error">{errors.merchant}</span>}
       </label>
 
-      <BalanceDisplay publicKey={userKey} />
+      <BalanceDisplay address={userKey} />
 
       <label className="form-group">
         <span className="form-label">Amount (XLM per period)</span>

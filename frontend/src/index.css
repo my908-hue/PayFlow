@@ -283,6 +283,21 @@ input::placeholder {
   color: white;
 }
 
+.badge-charged {
+  background: var(--color-success-bg);
+  color: var(--color-success-text);
+}
+
+.badge-skipped, .badge-paused, .badge-inactive {
+  background: var(--color-surface-overlay);
+  color: var(--color-text-muted);
+}
+
+.badge-failed, .badge-graceperiodelapsed, .badge-nosubscription {
+  background: var(--color-danger-bg);
+  color: var(--color-danger-text);
+}
+
 .badge-warning {
   background: #451a03;
   color: #fbbf24;

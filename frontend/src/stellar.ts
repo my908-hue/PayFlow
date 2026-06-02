@@ -485,6 +485,74 @@ export async function getMerchantSubscribers(merchant: string): Promise<Merchant
   }
 }
 
+export async function getMerchantRevenueHistory(merchant: string, days = 7): Promise<bigint[]> {
+  try {
+    const contract = new Contract(CONTRACT_ID);
+    const account = await server.getAccount(merchant);
+
+    const tx = new TransactionBuilder(account, {
+      fee: BASE_FEE,
+      networkPassphrase: NETWORK_PASSPHRASE,
+    })
+      .addOperation(
+        contract.call(
+          "get_merchant_revenue_history",
+          addressVal(merchant),
+          nativeToScVal(days, { type: "u32" })
+        )
+      )
+      .setTimeout(30)
+      .build();
+
+    const result = await server.simulateTransaction(tx);
+    if ("error" in result) return [];
+
+    const retval = (result as { result?: { retval?: xdr.ScVal } }).result?.retval;
+    if (!retval) return [];
+
+    const vecItems =
+      typeof (retval as any).vec === "function"
+        ? ((retval as any).vec() as any[])
+        : (retval as any)._value?.vec ?? (retval as any)._value?.vec;
+
+    if (!Array.isArray(vecItems)) return [];
+
+    return vecItems.map((item: any) => BigInt(item.i128().toString()));
+  } catch {
+    return [];
+  }
+}
+
+export async function getMerchantRevenue(merchant: string): Promise<bigint> {
+  try {
+    const contract = new Contract(CONTRACT_ID);
+    const account = await server.getAccount(merchant);
+
+    const tx = new TransactionBuilder(account, {
+      fee: BASE_FEE,
+      networkPassphrase: NETWORK_PASSPHRASE,
+    })
+      .addOperation(
+        contract.call(
+          "get_merchant_revenue",
+          addressVal(merchant)
+        )
+      )
+      .setTimeout(30)
+      .build();
+
+    const result = await server.simulateTransaction(tx);
+    if ("error" in result) return 0n;
+
+    const retval = (result as { result?: { retval?: xdr.ScVal } }).result?.retval;
+    if (!retval || retval.switch().name === "scvVoid") return 0n;
+
+    return BigInt(retval.i128().toString());
+  } catch {
+    return 0n;
+  }
+}
+
 export async function getBalance(publicKey: string): Promise<string> {
   try {
     const resp = await fetch(`https://horizon-testnet.stellar.org/accounts/${publicKey}`);
