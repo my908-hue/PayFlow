@@ -1,8 +1,8 @@
 use soroban_sdk::{contracttype, Address, Env, Vec};
 
-use crate::{grace, token, DataKey, Subscription};
 use crate::events;
 use crate::merchant_stats;
+use crate::{grace, token, DataKey, Subscription};
 
 /// The outcome for a single user in a batch_charge call.
 #[contracttype]
@@ -46,9 +46,7 @@ pub fn batch_charge(env: &Env, users: Vec<Address>) -> Vec<ChargeResult> {
                     ChargeResult::Paused
                 } else if now < sub.last_charged + sub.interval {
                     ChargeResult::Skipped
-                } else if grace_period > 0
-                    && now > sub.last_charged + sub.interval + grace_period
-                {
+                } else if grace_period > 0 && now > sub.last_charged + sub.interval + grace_period {
                     ChargeResult::GracePeriodElapsed
                 } else {
                     let token_client = token::Client::new(env, &sub.token);

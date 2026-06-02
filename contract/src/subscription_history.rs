@@ -36,12 +36,7 @@ pub fn record_charge(env: &Env, user: &Address, timestamp: u64) {
 
 /// Returns a paginated slice of charge timestamps for a subscriber.
 /// `limit` is capped at 12.
-pub fn get_charge_history_page(
-    env: &Env,
-    user: &Address,
-    offset: u32,
-    limit: u32,
-) -> Vec<u64> {
+pub fn get_charge_history_page(env: &Env, user: &Address, offset: u32, limit: u32) -> Vec<u64> {
     let history = get_charge_history(env, user);
     let mut page = Vec::new(env);
 

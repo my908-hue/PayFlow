@@ -1,5 +1,5 @@
-use soroban_sdk::Env;
 use crate::DataKey;
+use soroban_sdk::Env;
 
 /// Retrieves the contract-wide grace period from instance storage.
 /// Returns 0 if not set.
@@ -12,5 +12,7 @@ pub fn get_grace_period(env: &Env) -> u64 {
 
 /// Sets the contract-wide grace period in instance storage.
 pub fn set_grace_period(env: &Env, seconds: u64) {
-    env.storage().instance().set(&DataKey::GracePeriod, &seconds);
+    env.storage()
+        .instance()
+        .set(&DataKey::GracePeriod, &seconds);
 }

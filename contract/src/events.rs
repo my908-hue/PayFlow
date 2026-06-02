@@ -19,7 +19,13 @@ pub struct ChargeEventData {
     pub charged_at: u64,
 }
 
-pub fn publish_charged(env: &Env, user: &Address, sub: &Subscription, fee_amount: i128, charged_at: u64) {
+pub fn publish_charged(
+    env: &Env,
+    user: &Address,
+    sub: &Subscription,
+    fee_amount: i128,
+    charged_at: u64,
+) {
     let net = sub.amount - fee_amount;
     env.events().publish(
         (Symbol::new(env, "charged"), user.clone()),
@@ -88,10 +94,8 @@ pub fn publish_admin_transferred(env: &Env, old_admin: &Address, new_admin: &Add
 }
 
 pub fn publish_fee_updated(env: &Env, collector: &Address, bps: u32) {
-    env.events().publish(
-        (Symbol::new(env, "fee_updated"),),
-        (collector.clone(), bps),
-    );
+    env.events()
+        .publish((Symbol::new(env, "fee_updated"),), (collector.clone(), bps));
 }
 
 pub fn publish_grace_period_updated(env: &Env, seconds: u64) {

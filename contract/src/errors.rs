@@ -26,4 +26,5 @@ pub enum ContractError {
     MerchantNotWhitelisted = 10,
     /// Returned when a user attempts to refer themselves
     SelfReferral = 11,
+    InvalidTokenAddress = 12,
 }

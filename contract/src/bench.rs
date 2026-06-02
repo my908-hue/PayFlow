@@ -21,8 +21,6 @@
 /// These numbers are printed at runtime (see `--nocapture`).  Update the
 /// table above whenever a deliberate change shifts the baseline by more
 /// than ~5 %.
-#![cfg(test)]
-
 use super::*;
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
@@ -264,7 +262,11 @@ fn bench_batch_charge_10_users() {
     println!("  Memory Bytes     : {}", mem);
 
     // Verify all 10 users were actually charged (not skipped/errored).
-    assert_eq!(results.len(), 10, "batch_charge must return one result per user");
+    assert_eq!(
+        results.len(),
+        10,
+        "batch_charge must return one result per user"
+    );
     for i in 0..10u32 {
         assert_eq!(
             results.get(i).unwrap(),

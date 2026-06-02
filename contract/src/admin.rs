@@ -1,7 +1,7 @@
-use soroban_sdk::{Address, Env};
+use crate::events;
 use crate::storage::{get_admin, set_admin};
 use crate::DataKey;
-use crate::events;
+use soroban_sdk::{Address, Env};
 
 pub fn require_admin(env: &Env) {
     let admin = get_admin(env);
@@ -13,7 +13,9 @@ pub fn require_admin(env: &Env) {
 pub fn transfer_admin(env: &Env, new_admin: &Address) {
     let current_admin = get_admin(env);
     current_admin.require_auth();
-    env.storage().instance().set(&DataKey::PendingAdmin, new_admin);
+    env.storage()
+        .instance()
+        .set(&DataKey::PendingAdmin, new_admin);
 }
 
 /// Step 2: proposed new admin accepts and becomes the active admin.

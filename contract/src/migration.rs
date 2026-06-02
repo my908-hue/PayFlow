@@ -52,7 +52,7 @@ pub fn migrate(env: &Env, users: Vec<Address>) {
     // Transform provided users' data from v1 to v2
     for user in users.into_iter() {
         let key = DataKey::Subscription(user.clone());
-        
+
         // Attempt to read the entry as a V1 subscription
         if let Some(v1_sub) = env.storage().persistent().get::<_, SubscriptionV1>(&key) {
             let v2_sub = Subscription {
@@ -67,7 +67,7 @@ pub fn migrate(env: &Env, users: Vec<Address>) {
                 label: v1_sub.label,
                 trial_duration: v1_sub.trial_duration,
             };
-            
+
             env.storage().persistent().set(&key, &v2_sub);
         }
     }

@@ -1412,7 +1412,7 @@
             "data": {
               "vec": [
                 {
-                  "string": "caught panic 'subscription is not active' from contract function 'Symbol(obj#311)'"
+                  "string": "caught panic 'subscription is not active' from contract function 'Symbol(obj#315)'"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
