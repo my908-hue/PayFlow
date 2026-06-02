@@ -1529,6 +1529,24 @@ fn test_charge_insufficient_allowance() {
     client.charge(&user);
 
     #[test]
+fn test_set_metadata_label_at_limit_succeeds() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, PayFlowContract);
+    let client = PayFlowContractClient::new(&env, &contract_id);
+    let user = Address::generate(&env);
+    
+    // Create a valid string exactly 64 characters/bytes long
+    let valid_label = String::from_str(&env, "this_is_a_perfectly_valid_sixty_four_character_metadata_label_ok");
+    assert_eq!(valid_label.len(), 64);
+
+    // This should execute smoothly without errors
+    let result = client.set_metadata(&user, &valid_label);
+    assert!(result.is_ok());
+}
+
+#[test]
+#[should_panic(expected = "MetadataLabelTooLong")]
+fn test_set_metadata_label_exceeding_limit_fails() {
 fn test_subscription_history_oldest_entry_eviction() {
     let env = Env::default();
     let contract_id = env.register_contract(None, PayFlowContract);
@@ -1569,6 +1587,14 @@ fn test_subscription_history_chronological_ordering() {
     let contract_id = env.register_contract(None, PayFlowContract);
     let client = PayFlowContractClient::new(&env, &contract_id);
     let user = Address::generate(&env);
+    
+    // Create an invalid string 65 characters/bytes long (exceeds the 64-byte cap)
+    let invalid_label = String::from_str(&env, "this_is_an_invalid_sixty_five_character_metadata_label_too_long_!");
+    assert_eq!(invalid_label.len(), 65);
+
+    // This execution path must panic with our error variant
+    client.set_metadata(&user, &invalid_label).unwrap();
+}
 
     let base_timestamp = 2000;
 

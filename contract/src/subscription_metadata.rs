@@ -1,13 +1,20 @@
 use soroban_sdk::{Address, Env, String};
-
+use crate::errors::ContractError;
 use crate::DataKey;
 
 /// Stores a short metadata label for a subscriber (e.g. plan name).
-/// Overwrites any previously stored value.
-pub fn set_metadata(env: &Env, user: &Address, label: String) {
+/// Overwrites any previously stored value. Enforces a 64-byte max length limit.
+pub fn set_metadata(env: &Env, user: &Address, label: String) -> Result<(), ContractError> {
+    // Enforce max label length of 64 bytes
+    if label.len() > 64 {
+        return Err(ContractError::MetadataLabelTooLong);
+    }
+
     env.storage()
         .persistent()
         .set(&DataKey::SubscriptionMeta(user.clone()), &label);
+
+    Ok(())
 }
 
 /// Returns the metadata label for a subscriber, or `None` if not set.
