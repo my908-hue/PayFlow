@@ -12,6 +12,9 @@ pub fn get_referrer(env: &Env, user: &Address) -> Option<Address> {
 /// Stores the referrer for a subscriber. No-op if referrer is None.
 pub fn store_referral(env: &Env, user: &Address, referrer: &Option<Address>) {
     if let Some(ref r) = referrer {
+        if r == user {
+            panic!("self referral not allowed");
+        }
         env.storage()
             .persistent()
             .set(&DataKey::Referral(user.clone()), r);

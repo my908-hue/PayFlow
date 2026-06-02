@@ -2,6 +2,7 @@
 
 mod admin;
 mod batch;
+mod bench;
 mod errors;
 mod events;
 mod fee;
@@ -74,6 +75,7 @@ pub enum DataKey {
 // ─────────────────────────────────────────────────────────────
 
 pub const SUBSCRIPTION_TTL_LEDGERS: u32 = 6307200; // ~1 year (assuming 5s blocks)
+pub const MAX_AMOUNT: i128 = 100_000_000_000;
 
 // ─────────────────────────────────────────────────────────────
 // Data types
@@ -161,6 +163,11 @@ impl FlowPay {
 
         assert!(amount > 0, "amount must be positive");
         assert!(interval > 0, "interval must be positive");
+
+        use soroban_sdk::xdr::ToXdr;
+        if token.clone().to_xdr(&env).get(7) == Some(0) {
+            env.panic_with_error(ContractError::InvalidTokenAddress);
+        }
 
         let token_client = token::Client::new(&env, &token);
         let allowance = token_client.allowance(&user, &env.current_contract_address());
@@ -273,7 +280,7 @@ impl FlowPay {
         extend_subscription_ttl(&env, &user);
 
         subscription_history::record_charge(&env, &user, now);
-        events::publish_charged(&env, &user, &sub, now);
+        events::publish_charged(&env, &user, &sub, 0, now);
     }
 
     pub fn extend_subscription_ttl(env: Env, user: Address) {
@@ -310,6 +317,9 @@ impl FlowPay {
         user.require_auth();
 
         assert!(amount > 0, "amount must be positive");
+        if amount > MAX_AMOUNT {
+            panic!("Amount exceeds maximum cap");
+        }
 
         let key = DataKey::Subscription(user.clone());
 
@@ -540,6 +550,12 @@ impl FlowPay {
         trial::get_trial_end(env, user)
     }
 
+    /// Returns the contract-wide grace period in seconds.
+    /// Returns 0 if no grace period has been set.
+    pub fn get_grace_period(env: Env) -> u64 {
+        grace::get_grace_period(&env)
+    }
+
     /// Sets the contract-wide grace period for charges.
     /// Only the contract admin can call this.
     pub fn set_grace_period(env: Env, seconds: u64) {
@@ -569,6 +585,11 @@ impl FlowPay {
     pub fn set_whitelist_enabled(env: Env, enabled: bool) {
         admin::require_admin(&env);
         whitelist::set_whitelist_enabled(&env, enabled);
+    }
+
+    /// Returns whether the merchant whitelist is currently enabled.
+    pub fn is_whitelist_enabled(env: Env) -> bool {
+        whitelist::is_whitelist_enabled(&env)
     }
 
     /// Sets the protocol fee collection settings.
@@ -663,8 +684,8 @@ impl FlowPay {
 
     /// Migrates contract storage to the latest schema version.
     /// Safe to call multiple times — subsequent calls are no-ops.
-    pub fn migrate(env: Env) {
-        migration::migrate(&env);
+    pub fn migrate(env: Env, users: Vec<Address>) {
+        migration::migrate(&env, users);
     }
 
     /// Returns the current storage schema version.
@@ -701,6 +722,15 @@ impl FlowPay {
     pub fn clear_charge_history(env: Env, user: Address) {
         user.require_auth();
         subscription_history::clear_charge_history(&env, &user);
+    /// Returns a paginated slice of charge timestamps for a subscriber.
+    /// limit is capped at 12.
+    pub fn get_charge_history_page(
+        env: Env,
+        user: Address,
+        offset: u32,
+        limit: u32,
+    ) -> Vec<u64> {
+        subscription_history::get_charge_history_page(&env, &user, offset, limit)
     }
 }
 
@@ -722,3 +752,4 @@ fn is_contract_paused(env: &Env) -> bool {
 fn ensure_contract_not_paused(env: &Env) {
     assert!(!is_contract_paused(env), "contract is paused");
 }
+

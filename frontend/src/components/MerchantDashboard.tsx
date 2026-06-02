@@ -1,11 +1,13 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { getMerchantSubscribers, type MerchantSubscriber } from "../stellar";
+import { getMerchantSubscribers, type MerchantSubscriber, buildBatchChargeTx, simulateBatchCharge, type BatchChargeOutcome, getMerchantRevenue, getMerchantRevenueHistory } from "../stellar";
 import { formatAddress, formatXlm } from "../utils/format";
 import { usePolling } from "../hooks/usePolling";
+import { useTransaction } from "../hooks/useTransaction";
 import CopyButton from "./CopyButton";
 
 interface Props {
   merchantKey: string;
+  onSign: (xdr: string) => Promise<string>;
   refreshTrigger: number;
 }
 
@@ -16,23 +18,38 @@ function formatNextCharge(nextChargeAt: number): string {
 
 export default function MerchantDashboard({
   merchantKey,
+  onSign,
   refreshTrigger,
 }: Props) {
   const [subscribers, setSubscribers] = useState<MerchantSubscriber[]>([]);
+  const [revenue, setRevenue] = useState<bigint>(0n);
+  const [revenueHistory, setRevenueHistory] = useState<bigint[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const tx = useTransaction();
+  const [outcomes, setOutcomes] = useState<Record<string, BatchChargeOutcome>>({});
+
+  const dueSubscribers = subscribers.filter(
+    (s) => s.nextChargeAt <= Math.floor(Date.now() / 1000)
+  );
 
   const refresh = useCallback(async () => {
     setSubscribers((prev) => {
       if (prev.length === 0) setLoading(true);
       return prev;
     });
-    setSubscribers((prev) => { if (prev.length === 0) setLoading(true); return prev; });
     setError(null);
 
     try {
-      const data = await getMerchantSubscribers(merchantKey);
-      setSubscribers(data);
+      const [subData, revData, histData] = await Promise.all([
+        getMerchantSubscribers(merchantKey),
+        getMerchantRevenue(merchantKey),
+        getMerchantRevenueHistory(merchantKey),
+      ]);
+      setSubscribers(subData);
+      setRevenue(revData);
+      setRevenueHistory(histData);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -46,6 +63,33 @@ export default function MerchantDashboard({
 
   usePolling({ callback: refresh, interval: 30000, enabled: true });
 
+  const handleBatchCharge = async () => {
+    if (dueSubscribers.length === 0) return;
+
+    const users = dueSubscribers.map((s) => s.subscriber);
+    setOutcomes({});
+
+    try {
+      // 1. Pre-flight simulation to predict outcomes
+      const simulationOutcomes = await simulateBatchCharge(merchantKey, users);
+      const outcomeMap: Record<string, BatchChargeOutcome> = {};
+      users.forEach((u, i) => {
+        outcomeMap[u] = simulationOutcomes[i] || "Failed";
+      });
+      setOutcomes(outcomeMap);
+
+      // 2. Submit transaction
+      await tx.submit(async () => {
+        return await onSign(await buildBatchChargeTx(merchantKey, users));
+      });
+
+      // 3. Success — refresh list to show updated next charge times
+      setTimeout(refresh, 2000);
+    } catch (e) {
+      console.error("Batch charge failed:", e);
+    }
+  };
+
   if (loading) {
     return (
       <div className="dashboard">
@@ -54,23 +98,62 @@ export default function MerchantDashboard({
     );
   }
 
+  const maxRevenue = revenueHistory.reduce((a, b) => (a > b ? a : b), 1n);
+
   return (
     <div className="dashboard">
       <div className="flex-between mb-4">
         <div>
-          <h2 className="text-xl font-bold">Merchant Subscribers</h2>
+          <h2 className="text-xl font-bold">Merchant Dashboard</h2>
           <p className="text-sm text-muted">
-            Active subscribers paying your merchant wallet.
+            Manage your subscribers and track your revenue.
           </p>
         </div>
-        <button className="btn-secondary" onClick={refresh}>
-          Refresh
-        </button>
+        <div className="flex gap-2">
+          <button className="btn-secondary" onClick={refresh}>
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+        <div className="card">
+          <span className="text-sm text-muted block mb-1">Total Revenue</span>
+          <span className="text-2xl font-bold">{formatXlm(revenue)}</span>
+        </div>
+        <div className="card">
+          <span className="text-sm text-muted block mb-2">Last 7 Days Revenue</span>
+          <div className="flex items-end gap-1" style={{ height: "40px" }}>
+            {revenueHistory.length === 0 ? (
+              <p className="text-xs text-muted">No data</p>
+            ) : (
+              revenueHistory.map((dayRev, i) => (
+                <div
+                  key={i}
+                  style={{
+                    height: `${Math.max(Number((dayRev * 100n) / maxRevenue), 5)}%`,
+                    flex: 1,
+                    backgroundColor: "var(--color-primary)",
+                    borderRadius: "2px",
+                    opacity: 0.8,
+                  }}
+                  title={formatXlm(dayRev)}
+                />
+              ))
+            )}
+          </div>
+        </div>
       </div>
 
       {error && (
-        <p className="action-status" style={{ color: "var(--color-danger)" }}>
+        <p className="action-status mb-4" style={{ color: "var(--color-danger)" }}>
           Error: {error}
+        </p>
+      )}
+
+      {tx.error && (
+        <p className="action-status mb-4" style={{ color: "var(--color-danger)" }}>
+          Transaction Error: {tx.error}
         </p>
       )}
 
@@ -83,10 +166,39 @@ export default function MerchantDashboard({
       ) : (
         <div className="card merchant-subscriber-card">
           <div className="merchant-subscriber-meta mb-4">
-            <span className="text-sm text-muted">
-              {subscribers.length} active subscriber{subscribers.length !== 1 ? "s" : ""}
-            </span>
+            <h3 className="text-lg font-bold">Active Subscribers</h3>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted">
+                {subscribers.length} total
+              </span>
+              {dueSubscribers.length > 0 && (
+                <span className="badge badge-warning">
+                  {dueSubscribers.length} due
+                </span>
+              )}
+            </div>
           </div>
+
+          {dueSubscribers.length > 0 && (
+            <div className="mb-6">
+              <button
+                className="btn-primary w-full"
+                onClick={handleBatchCharge}
+                disabled={tx.status === "pending"}
+              >
+                {tx.status === "pending"
+                  ? "Processing Batch Charge..."
+                  : `Charge ${dueSubscribers.length} due subscriber${
+                      dueSubscribers.length !== 1 ? "s" : ""
+                    }`}
+              </button>
+              {tx.status === "success" && (
+                <p className="text-sm text-center mt-2" style={{ color: "var(--color-success)" }}>
+                  Batch charge submitted successfully!
+                </p>
+              )}
+            </div>
+          )}
 
           <div className="subscription-rows merchant-subscriber-list">
             {subscribers.map((entry) => (
@@ -101,9 +213,16 @@ export default function MerchantDashboard({
                   <span className="subscription-row__value">
                     {formatXlm(entry.amount)}
                   </span>
-                  <span className="subscription-row__label">
-                    Next charge {formatNextCharge(entry.nextChargeAt)}
-                  </span>
+                  <div className="flex flex-col items-end gap-1">
+                    <span className="subscription-row__label">
+                      Next charge {formatNextCharge(entry.nextChargeAt)}
+                    </span>
+                    {outcomes[entry.subscriber] && (
+                      <span className={`badge badge-${outcomes[entry.subscriber].toLowerCase()}`}>
+                        {outcomes[entry.subscriber]}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
             ))}
