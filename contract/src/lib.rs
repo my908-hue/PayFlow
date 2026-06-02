@@ -2,6 +2,7 @@
 
 mod admin;
 mod batch;
+mod bench;
 mod errors;
 mod events;
 mod fee;
