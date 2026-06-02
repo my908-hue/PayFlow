@@ -59,3 +59,10 @@ pub fn increment_revenue_with_daily(env: &Env, merchant: &Address, amount: i128)
         .persistent()
         .set(&key, &(current_day + amount));
 }
+
+/// Resets a merchant's cumulative revenue counter to zero.
+pub fn reset_merchant_revenue(env: &Env, merchant: &Address) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::MerchantRevenue(merchant.clone()), &0i128);
+}

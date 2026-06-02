@@ -695,6 +695,13 @@ impl FlowPay {
         merchant_stats::get_merchant_revenue_history(&env, &merchant, days)
     }
 
+    /// Resets a merchant's cumulative revenue counter to zero.
+    /// Only the contract admin can call this.
+    pub fn reset_merchant_revenue(env: Env, merchant: Address) {
+        admin::require_admin(&env);
+        merchant_stats::reset_merchant_revenue(&env, &merchant);
+    }
+
     // ─────────────────────────────────────────────────────────────
     // Daily spending limits
     // ─────────────────────────────────────────────────────────────
