@@ -701,6 +701,17 @@ impl FlowPay {
     pub fn get_charge_history(env: Env, user: Address) -> Vec<u64> {
         subscription_history::get_charge_history(&env, &user)
     }
+
+    /// Returns a paginated slice of charge timestamps for a subscriber.
+    /// limit is capped at 12.
+    pub fn get_charge_history_page(
+        env: Env,
+        user: Address,
+        offset: u32,
+        limit: u32,
+    ) -> Vec<u64> {
+        subscription_history::get_charge_history_page(&env, &user, offset, limit)
+    }
 }
 
 fn extend_subscription_ttl(env: &Env, user: &Address) {
