@@ -749,3 +749,9 @@ input::placeholder {
     align-items: flex-start;
   }
 }
+
+.wallet-bar__address-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
