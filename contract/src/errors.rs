@@ -26,4 +26,6 @@ pub enum ContractError {
     MerchantNotWhitelisted = 10,
     /// Returned when the metadata label exceeds the 64-byte length limit
     MetadataLabelTooLong = 11,
+    /// Returned when a user attempts to refer themselves
+    SelfReferral = 11,
 }

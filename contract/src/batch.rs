@@ -64,7 +64,7 @@ pub fn batch_charge(env: &Env, users: Vec<Address>) -> Vec<ChargeResult> {
                     sub.last_charged = now;
                     env.storage().persistent().set(&key, &sub);
 
-                    events::publish_charged(env, &user, &sub, now);
+                    events::publish_charged(env, &user, &sub, 0, now);
 
                     ChargeResult::Charged
                 }

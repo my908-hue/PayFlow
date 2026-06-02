@@ -340,6 +340,7 @@ export default function App() {
               >
                 <MerchantDashboard
                   merchantKey={publicKey}
+                  onSign={signAndSubmit}
                   refreshTrigger={refresh}
                 />
               </ErrorBoundary>

@@ -94,6 +94,15 @@ fn test_subscribe_and_charge() {
     assert!(sub_after.last_charged > 0);
 }
 
+#[test]
+fn test_batch_charge_empty() {
+    let (env, contract_id, _, _, _) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let results = client.batch_charge(&soroban_sdk::vec![&env]);
+    assert_eq!(results.len(), 0);
+}
+
 /// charge() must decrease user balance and increase merchant balance by exactly the subscription amount.
 #[test]
 fn test_charge_exact_transfer_amount() {
@@ -367,6 +376,16 @@ fn test_pay_per_use_zero_amount() {
 
     client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
     client.pay_per_use(&user, &0);
+}
+
+#[test]
+#[should_panic(expected = "Amount exceeds maximum cap")]
+fn test_pay_per_use_exceeds_cap() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+    client.pay_per_use(&user, &(MAX_AMOUNT + 1));
 }
 
 /// initialize() still works for backward compat but is not required.
@@ -654,6 +673,29 @@ fn test_batch_charge_inactive() {
     assert_eq!(results.get(0).unwrap(), crate::ChargeResult::Inactive);
 }
 
+#[test]
+fn test_batch_charge_grace_period_elapsed() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    env.as_contract(&contract_id, || {
+        storage::set_admin(&env, &user);
+    });
+    client.set_grace_period(&86400);
+
+    let interval: u64 = 86400;
+    client.subscribe(&user, &merchant, &1_0000000, &interval, &token_addr, &None, &None);
+
+    // Advance ledger beyond interval + grace period
+    env.ledger().with_mut(|l| { l.timestamp += interval + 86400 + 1; });
+
+    let mut users = soroban_sdk::Vec::new(&env);
+    users.push_back(user.clone());
+
+    let results = client.batch_charge(&users);
+    assert_eq!(results.get(0).unwrap(), crate::ChargeResult::GracePeriodElapsed);
+}
+
 // ─────────────────────────────────────────────
 // subscription_count tests
 // ─────────────────────────────────────────────
@@ -884,6 +926,48 @@ fn test_contract_pause_events_emitted() {
     assert_last_event(&env, "contract_unpaused");
 }
 
+// ─────────────────────────────────────────────
+// Migration tests
+// ─────────────────────────────────────────────
+
+#[test]
+fn test_migrate_v1_to_v2() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    // Manually construct and store a V1 subscription
+    let v1_sub = crate::migration::SubscriptionV1 {
+        merchant: merchant.clone(),
+        amount: 1_0000000,
+        interval: 86400,
+        last_charged: env.ledger().timestamp(),
+        active: true,
+        token: token_addr.clone(),
+        referrer: None,
+        label: Symbol::new(&env, "v1_label"),
+        trial_duration: 0,
+    };
+    
+    env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .set(&crate::DataKey::Subscription(user.clone()), &v1_sub);
+    });
+
+    let mut users = soroban_sdk::Vec::new(&env);
+    users.push_back(user.clone());
+
+    client.migrate(&users);
+
+    // Verify it was upgraded to V2
+    let v2_sub = client.get_subscription(&user).unwrap();
+    assert_eq!(v2_sub.merchant, merchant);
+    assert_eq!(v2_sub.amount, 1_0000000);
+    assert_eq!(v2_sub.active, true);
+    assert_eq!(v2_sub.paused, false); // This is the newly added field
+    assert_eq!(v2_sub.label, Symbol::new(&env, "v1_label"));
+}
+
 #[test]
 fn test_upgrade_event_emitted() {
     let (env, contract_id, _token_addr, user, _merchant) = setup();
@@ -926,6 +1010,35 @@ fn test_no_referral_returns_none() {
 
     client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
 
+    assert!(client.get_referrer(&user).is_none());
+}
+
+#[test]
+fn test_referral_updates_on_resubscribe() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let referrer_a = Address::generate(&env);
+    let referrer_b = Address::generate(&env);
+
+    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None, &Some(referrer_a.clone()));
+    assert_eq!(client.get_referrer(&user), Some(referrer_a));
+
+    client.subscribe(&user, &merchant, &2_0000000, &172800, &token_addr, &None, &Some(referrer_b.clone()));
+    assert_eq!(client.get_referrer(&user), Some(referrer_b));
+}
+
+#[test]
+fn test_referral_clears_on_resubscribe_with_none() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let referrer = Address::generate(&env);
+
+    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None, &Some(referrer.clone()));
+    assert_eq!(client.get_referrer(&user), Some(referrer));
+
+    client.subscribe(&user, &merchant, &2_0000000, &172800, &token_addr, &None, &None);
     assert!(client.get_referrer(&user).is_none());
 }
 
@@ -1434,6 +1547,42 @@ fn test_set_metadata_label_at_limit_succeeds() {
 #[test]
 #[should_panic(expected = "MetadataLabelTooLong")]
 fn test_set_metadata_label_exceeding_limit_fails() {
+fn test_subscription_history_oldest_entry_eviction() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, PayFlowContract);
+    let client = PayFlowContractClient::new(&env, &contract_id);
+
+    // Initialize test accounts and subscription setup here if required by contract context
+    let user = Address::generate(&env);
+    
+    // Simulate 13 consecutive charges to trigger eviction (cap is 12)
+    // We store the unique timestamp of the very first charge to verify eviction
+    let first_charge_timestamp = 1000; 
+    
+    // 1. Trigger the first baseline charge
+    env.ledger().set_timestamp(first_charge_timestamp);
+    client.mock_charge(&user); 
+
+    // 2. Trigger 12 subsequent charges to push history count to 13 total
+    for i in 1..13 {
+        env.ledger().set_timestamp(first_charge_timestamp + (i * 100));
+        client.mock_charge(&user);
+    }
+
+    // Retrieve the history array 
+    let history = client.get_charge_history(&user);
+
+    // Assert that the array matches the strict cap size limit of 12 entries
+    assert_eq!(history.len(), 12);
+
+    // Assert that the very first charge timestamp has been evicted completely (FIFO verification)
+    for entry in history.iter() {
+        assert_ne!(entry.timestamp, first_charge_timestamp);
+    }
+}
+
+#[test]
+fn test_subscription_history_chronological_ordering() {
     let env = Env::default();
     let contract_id = env.register_contract(None, PayFlowContract);
     let client = PayFlowContractClient::new(&env, &contract_id);
@@ -1446,5 +1595,24 @@ fn test_set_metadata_label_exceeding_limit_fails() {
     // This execution path must panic with our error variant
     client.set_metadata(&user, &invalid_label).unwrap();
 }
+
+    let base_timestamp = 2000;
+
+    // Record 5 unique charges spaced sequentially over time
+    for i in 0..5 {
+        env.ledger().set_timestamp(base_timestamp + (i * 500));
+        client.mock_charge(&user);
+    }
+
+    let history = client.get_charge_history(&user);
+    assert!(history.len() >= 2);
+
+    // Strictly verify that history is ordered oldest -> newest
+    for i in 0..(history.len() - 1) {
+        let older_entry = history.get(i).unwrap();
+        let newer_entry = history.get(i + 1).unwrap();
+        assert!(older_entry.timestamp < newer_entry.timestamp);
+    }
+    }
 
 }
