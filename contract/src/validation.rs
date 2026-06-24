@@ -24,6 +24,18 @@ pub fn validate_subscription_readiness(env: &Env, user: &Address, sub: &Subscrip
     check_allowance(env, user, &sub.token, sub.amount);
 }
 
+/// Validates that `new_amount` is a legal subscription amount: must be positive
+/// and must not exceed `MAX_SUBSCRIPTION_AMOUNT`. Panics with the appropriate
+/// `ContractError` variant on failure.
+pub fn require_valid_amount(env: &Env, new_amount: i128) {
+    if new_amount <= 0 {
+        env.panic_with_error(ContractError::AmountMustBePositive);
+    }
+    if new_amount > crate::MAX_SUBSCRIPTION_AMOUNT {
+        env.panic_with_error(ContractError::AmountExceedsMaximum);
+    }
+}
+
 pub fn require_positive_amount(amount: i128) {
     assert!(amount > 0, "amount must be positive");
 }
