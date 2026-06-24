@@ -2911,3 +2911,103 @@ fn test_set_subscription_amount_non_admin_panics() {
 
     client.set_subscription_amount(&user, &2_0000000);
 }
+
+// ─────────────────────────────────────────────
+// CONTRACT-37: set_subscription_interval tests
+// ─────────────────────────────────────────────
+
+/// Admin successfully updates the billing interval; next_charge_at reflects the
+/// new value and last_charged / amount are untouched.
+#[test]
+fn test_set_subscription_interval_admin_succeeds() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    env.as_contract(&contract_id, || {
+        storage::set_admin(&env, &admin);
+    });
+
+    let amount: i128 = 1_0000000;
+    let original_interval: u64 = 86400;      // 1 day
+    let new_interval: u64 = 30 * 24 * 3600;  // 30 days
+
+    client.subscribe(&user, &merchant, &amount, &original_interval, &token_addr, &None, &None);
+
+    let sub_before = client.get_subscription(&user).unwrap();
+    assert_eq!(sub_before.interval, original_interval);
+    let last_charged_before = sub_before.last_charged;
+    let amount_before = sub_before.amount;
+
+    client.set_subscription_interval(&user, &new_interval);
+
+    let sub_after = client.get_subscription(&user).unwrap();
+    assert_eq!(sub_after.interval, new_interval, "interval should be updated");
+    assert_eq!(
+        sub_after.last_charged, last_charged_before,
+        "last_charged must not change"
+    );
+    assert_eq!(sub_after.amount, amount_before, "amount must not change");
+    assert!(sub_after.active, "subscription should remain active");
+
+    // next_charge_at must reflect last_charged + new_interval
+    let expected_next = last_charged_before + new_interval;
+    assert_eq!(
+        client.next_charge_at(&user).unwrap(),
+        expected_next,
+        "next_charge_at should use the updated interval"
+    );
+}
+
+/// Setting an interval of zero must panic with IntervalTooShort.
+#[test]
+#[should_panic(expected = "Error(Contract, #19)")]
+fn test_set_subscription_interval_zero_panics() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    env.as_contract(&contract_id, || {
+        storage::set_admin(&env, &admin);
+    });
+
+    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+
+    client.set_subscription_interval(&user, &0);
+}
+
+/// Updating the interval for a non-existent subscription must panic with
+/// NoSubscriptionFound.
+#[test]
+#[should_panic(expected = "Error(Contract, #4)")]
+fn test_set_subscription_interval_no_subscription_panics() {
+    let (env, contract_id, _token_addr, _user, _merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    env.as_contract(&contract_id, || {
+        storage::set_admin(&env, &admin);
+    });
+
+    let random = Address::generate(&env);
+    client.set_subscription_interval(&random, &86400);
+}
+
+/// A non-admin caller must not be able to update the billing interval.
+#[test]
+#[should_panic]
+fn test_set_subscription_interval_non_admin_panics() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    env.as_contract(&contract_id, || {
+        storage::set_admin(&env, &admin);
+    });
+
+    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+
+    env.set_auths(&[]);
+
+    client.set_subscription_interval(&user, &172800);
+}

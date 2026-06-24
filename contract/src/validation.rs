@@ -36,6 +36,15 @@ pub fn require_valid_amount(env: &Env, new_amount: i128) {
     }
 }
 
+/// Validates that `new_interval` is a legal subscription interval: must be
+/// strictly greater than zero. Panics with `ContractError::IntervalTooShort`
+/// if the floor is not met.
+pub fn require_valid_interval(env: &Env, new_interval: u64) {
+    if new_interval == 0 {
+        env.panic_with_error(ContractError::IntervalTooShort);
+    }
+}
+
 pub fn require_positive_amount(amount: i128) {
     assert!(amount > 0, "amount must be positive");
 }

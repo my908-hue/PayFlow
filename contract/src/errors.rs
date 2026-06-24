@@ -40,4 +40,6 @@ pub enum ContractError {
     SubscriptionPaused = 17,
     /// Returned when the contract has been paused by admin
     ContractPaused = 18,
+    /// Returned when a subscription interval is below the minimum permitted floor
+    IntervalTooShort = 19,
 }

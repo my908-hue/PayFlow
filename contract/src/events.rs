@@ -135,3 +135,15 @@ pub fn publish_subscription_amount_updated(
         (old_amount, new_amount),
     );
 }
+
+pub fn publish_subscription_interval_updated(
+    env: &Env,
+    user: &Address,
+    old_interval: u64,
+    new_interval: u64,
+) {
+    env.events().publish(
+        (Symbol::new(env, "sub_interval_updated"), user.clone()),
+        (old_interval, new_interval),
+    );
+}
