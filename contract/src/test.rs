@@ -2837,3 +2837,77 @@ fn test_resubscribe_zero_allowance_panics() {
         &None,
     );
 }
+
+// ─────────────────────────────────────────────
+// CONTRACT-36: set_subscription_amount tests
+// ─────────────────────────────────────────────
+
+/// Admin successfully updates a subscription amount; get_subscription reflects
+/// the new value and last_charged / interval are untouched.
+#[test]
+fn test_set_subscription_amount_admin_succeeds() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    env.as_contract(&contract_id, || {
+        storage::set_admin(&env, &admin);
+    });
+
+    let original_amount: i128 = 1_0000000;
+    let new_amount: i128 = 3_0000000;
+    let interval: u64 = 86400;
+
+    client.subscribe(&user, &merchant, &original_amount, &interval, &token_addr, &None, &None);
+
+    let sub_before = client.get_subscription(&user).unwrap();
+    assert_eq!(sub_before.amount, original_amount);
+    let last_charged_before = sub_before.last_charged;
+
+    client.set_subscription_amount(&user, &new_amount);
+
+    let sub_after = client.get_subscription(&user).unwrap();
+    assert_eq!(sub_after.amount, new_amount, "amount should be updated");
+    assert_eq!(
+        sub_after.last_charged, last_charged_before,
+        "last_charged must not change"
+    );
+    assert_eq!(sub_after.interval, interval, "interval must not change");
+    assert!(sub_after.active, "subscription should remain active");
+}
+
+/// Updating a non-existent subscription must panic with NoSubscriptionFound.
+#[test]
+#[should_panic(expected = "Error(Contract, #4)")]
+fn test_set_subscription_amount_no_subscription_panics() {
+    let (env, contract_id, _token_addr, _user, _merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    env.as_contract(&contract_id, || {
+        storage::set_admin(&env, &admin);
+    });
+
+    let random = Address::generate(&env);
+    client.set_subscription_amount(&random, &2_0000000);
+}
+
+/// A non-admin caller must not be able to update a subscription amount.
+#[test]
+#[should_panic]
+fn test_set_subscription_amount_non_admin_panics() {
+    let (env, contract_id, token_addr, user, merchant) = setup();
+    let client = FlowPayClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    env.as_contract(&contract_id, || {
+        storage::set_admin(&env, &admin);
+    });
+
+    client.subscribe(&user, &merchant, &1_0000000, &86400, &token_addr, &None, &None);
+
+    // Remove all authorizations so the admin auth check fails.
+    env.set_auths(&[]);
+
+    client.set_subscription_amount(&user, &2_0000000);
+}

@@ -590,6 +590,54 @@ impl FlowPay {
         grace::get_grace_period(&env)
     }
 
+    /// Updates the recurring charge amount for `user`'s subscription.
+    ///
+    /// # Parameters
+    ///
+    /// - `user`: Subscriber whose subscription amount should be adjusted.
+    /// - `new_amount`: Replacement amount for future charges. Must be positive
+    ///   and must not exceed `MAX_SUBSCRIPTION_AMOUNT`.
+    ///
+    /// # Returns
+    ///
+    /// Returns nothing.
+    ///
+    /// # Auth
+    ///
+    /// Requires authorization from the contract admin.
+    ///
+    /// # Errors
+    ///
+    /// Panics if the contract is paused, no subscription exists for `user`,
+    /// or `new_amount` fails amount validation.
+    ///
+    /// # Side Effects
+    ///
+    /// Overwrites the subscription's `amount` field in persistent storage,
+    /// refreshes its TTL, and emits `sub_amount_updated`.
+    pub fn set_subscription_amount(env: Env, user: Address, new_amount: i128) {
+        ensure_contract_not_paused(&env);
+        admin::require_admin(&env);
+
+        let key = DataKey::Subscription(user.clone());
+
+        let mut sub: Subscription = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| env.panic_with_error(ContractError::NoSubscriptionFound));
+
+        validation::require_valid_amount(&env, new_amount);
+
+        let old_amount = sub.amount;
+        sub.amount = new_amount;
+
+        env.storage().persistent().set(&key, &sub);
+        extend_subscription_ttl(&env, &user);
+
+        events::publish_subscription_amount_updated(&env, &user, old_amount, new_amount);
+    }
+
     /// Adds a merchant to the whitelist.
     pub fn add_merchant(env: Env, merchant: Address) {
         admin::require_admin(&env);

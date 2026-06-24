@@ -123,3 +123,15 @@ pub fn publish_grace_period_updated(env: &Env, seconds: u64) {
     env.events()
         .publish((Symbol::new(env, "grace_period_updated"),), seconds);
 }
+
+pub fn publish_subscription_amount_updated(
+    env: &Env,
+    user: &Address,
+    old_amount: i128,
+    new_amount: i128,
+) {
+    env.events().publish(
+        (Symbol::new(env, "sub_amount_updated"), user.clone()),
+        (old_amount, new_amount),
+    );
+}
