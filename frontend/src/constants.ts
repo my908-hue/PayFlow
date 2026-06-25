@@ -7,3 +7,9 @@ export const BILLING_INTERVALS = [
 ] satisfies { label: string; value: number }[];
 
 export const DEFAULT_EXPIRATION_LEDGER = 30;
+
+export const CONTRACT_LIMITS = {
+  MAX_PAY_PER_USE_AMOUNT: 100_000_000_000n,
+  MAX_SUBSCRIPTION_AMOUNT: 1_000_000_000_000n,
+  MIN_INTERVAL_SECONDS: 3600,
+} as const;

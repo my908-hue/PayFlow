@@ -1,5 +1,7 @@
-import React, { useState, forwardRef } from "react";
+import React, { useState, forwardRef, useMemo } from "react";
 import Spinner from "./Spinner";
+import { validateStroopAmount } from "../hooks/useFormValidation";
+import { CONTRACT_LIMITS } from "../constants";
 
 interface PayPerUseFormProps {
   onPay: (amount: bigint) => Promise<void>;
@@ -10,8 +12,12 @@ const PayPerUseForm = forwardRef<HTMLInputElement, PayPerUseFormProps>(
   ({ onPay, loading }, ref) => {
     const [amount, setAmount] = useState("");
 
+    const validationResult = useMemo(() => {
+      return validateStroopAmount(amount, CONTRACT_LIMITS.MAX_PAY_PER_USE_AMOUNT);
+    }, [amount]);
+
     async function handleSubmit() {
-      if (!amount) return;
+      if (!validationResult.valid) return;
       const stroops = BigInt(Math.round(parseFloat(amount) * 10_000_000));
       await onPay(stroops);
       setAmount("");
@@ -33,12 +39,15 @@ const PayPerUseForm = forwardRef<HTMLInputElement, PayPerUseFormProps>(
           />
           <button
             onClick={handleSubmit}
-            disabled={!amount || loading}
+            disabled={!validationResult.valid || loading}
             className="btn-primary ppu-card__pay-btn"
           >
             {loading ? <Spinner size="sm" /> : "Pay now"}
           </button>
         </div>
+        {validationResult.error && (
+          <span className="text-error">{validationResult.error}</span>
+        )}
       </div>
     );
   }
