@@ -1,10 +1,12 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // 1. Intercept the Stellar SDK's Server class safely with a standalone mock implementation
 vi.mock("@stellar/stellar-sdk/rpc", () => {
   return {
     Server: class {
       getEvents = vi.fn();
+      simulateTransaction = vi.fn();
+      getAccount = vi.fn().mockResolvedValue({ id: "mock-account" });
     },
     assembleTransaction: vi.fn(),
   };
@@ -235,5 +237,166 @@ describe("getChargeHistory", () => {
     const result = await getChargeHistory("user_A");
 
     expect(result).toEqual([]);
+  });
+});
+
+// ── rpcCache integration tests ────────────────────────────────────────────────
+//
+// These tests exercise the deduplication and TTL caching behaviour of
+// dedupedCall directly, without depending on the full Stellar SDK call chain.
+
+import { dedupedCall, _clearCacheForTesting } from "../services/rpcCache";
+
+describe("rpcCache — dedupedCall deduplication & TTL", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    _clearCacheForTesting();
+  });
+
+  afterEach(() => {
+    _clearCacheForTesting();
+  });
+
+  // ── Test Case 1: In-flight deduplication ─────────────────────────────────
+
+  it("collapses two concurrent calls with the same key into one underlying invocation", async () => {
+    let callCount = 0;
+
+    // Simulate a slow async RPC call so both callers overlap in-flight.
+    const slowFn = (): Promise<string> =>
+      new Promise((resolve) => {
+        callCount++;
+        setTimeout(() => resolve("result"), 10);
+      });
+
+    vi.useFakeTimers();
+
+    const promise1 = dedupedCall("test:dedup", slowFn);
+    const promise2 = dedupedCall("test:dedup", slowFn);
+
+    // Both calls should share the same Promise reference.
+    expect(promise1).toBe(promise2);
+
+    // Advance timers so the slow function resolves.
+    await vi.runAllTimersAsync();
+
+    const [r1, r2] = await Promise.all([promise1, promise2]);
+
+    // fn was called exactly once.
+    expect(callCount).toBe(1);
+
+    // Both callers received the same value.
+    expect(r1).toBe("result");
+    expect(r2).toBe("result");
+
+    vi.useRealTimers();
+  });
+
+  it("in-flight deduplication works for getSubscription via its cache key", async () => {
+    // Spy on the real dedupedCall to intercept both calls at the cache layer.
+    let invocations = 0;
+    const factory = (): Promise<number> =>
+      new Promise((resolve) => {
+        invocations++;
+        resolve(42);
+      });
+
+    const p1 = dedupedCall("getSubscription:GADDR1", factory);
+    const p2 = dedupedCall("getSubscription:GADDR1", factory);
+
+    // Same Promise reference — deduplication happened.
+    expect(p1).toBe(p2);
+
+    await Promise.all([p1, p2]);
+
+    // Factory was called exactly once.
+    expect(invocations).toBe(1);
+  });
+
+  // ── Test Case 2: TTL cache (sequential reads) ─────────────────────────────
+
+  it("serves sequential reads within the TTL window from cache without re-invoking fn", async () => {
+    let callCount = 0;
+    const fn = (): Promise<string> => {
+      callCount++;
+      return Promise.resolve("cached-value");
+    };
+
+    // First call — cold, hits fn.
+    const first = await dedupedCall("test:ttl", fn);
+    expect(callCount).toBe(1);
+    expect(first).toBe("cached-value");
+
+    // Second call — within TTL (no time has passed), must hit cache.
+    const second = await dedupedCall("test:ttl", fn);
+    expect(callCount).toBe(1); // fn NOT called again
+    expect(second).toBe("cached-value");
+  });
+
+  it("fires a new call once the TTL has expired", async () => {
+    vi.useFakeTimers();
+
+    let callCount = 0;
+    const fn = (): Promise<string> => {
+      callCount++;
+      return Promise.resolve(`call-${callCount}`);
+    };
+
+    // Cold call.
+    const before = await dedupedCall("test:ttl-expiry", fn, 5_000);
+    expect(callCount).toBe(1);
+    expect(before).toBe("call-1");
+
+    // Advance past the 5 s TTL.
+    vi.advanceTimersByTime(6_000);
+
+    // Post-expiry call — must bypass cache and invoke fn again.
+    const after = await dedupedCall("test:ttl-expiry", fn, 5_000);
+    expect(callCount).toBe(2);
+    expect(after).toBe("call-2");
+
+    vi.useRealTimers();
+  });
+
+  it("different keys do not interfere with each other", async () => {
+    let aCount = 0;
+    let bCount = 0;
+
+    const fnA = (): Promise<string> => { aCount++; return Promise.resolve("a"); };
+    const fnB = (): Promise<string> => { bCount++; return Promise.resolve("b"); };
+
+    const [ra1, rb1, ra2, rb2] = await Promise.all([
+      dedupedCall("key:A", fnA),
+      dedupedCall("key:B", fnB),
+      dedupedCall("key:A", fnA),
+      dedupedCall("key:B", fnB),
+    ]);
+
+    // Each key's factory called once (dedup within the key).
+    expect(aCount).toBe(1);
+    expect(bCount).toBe(1);
+
+    expect(ra1).toBe("a");
+    expect(rb1).toBe("b");
+    expect(ra2).toBe("a");
+    expect(rb2).toBe("b");
+  });
+
+  it("re-invokes fn after rejection (failed calls are not cached)", async () => {
+    let callCount = 0;
+    const fn = (): Promise<string> => {
+      callCount++;
+      if (callCount === 1) return Promise.reject(new Error("transient"));
+      return Promise.resolve("ok");
+    };
+
+    // First call — rejects.
+    await expect(dedupedCall("test:reject", fn)).rejects.toThrow("transient");
+    expect(callCount).toBe(1);
+
+    // Second call — should call fn again since the first was not cached.
+    const result = await dedupedCall("test:reject", fn);
+    expect(callCount).toBe(2);
+    expect(result).toBe("ok");
   });
 });
